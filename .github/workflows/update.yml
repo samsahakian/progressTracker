@@ -1,0 +1,43 @@
+name: Update dashboard
+
+on:
+  schedule:
+    - cron: "17 11 * * *"   # daily, ~5–6 am Central
+  workflow_dispatch:         # "Run workflow" button for an on-demand refresh
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull Concept2 Logbook
+        env:
+          C2_TOKEN: ${{ secrets.C2_TOKEN }}
+        run: python3 sync.py
+
+      - name: Build dashboard
+        run: python3 build.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erg Progress</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f3f0;
+  --surface: #fcfcfb;
+  --border: #e3e2dd;
+  --grid: #ecebe7;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #7c7b76;
+  --s1: #2a78d6; --s1-soft: #9ec5f4;
+  --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --pb: #0b0b0b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --border: #2c2c2a; --grid: #252523;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --s1: #6da7ec; --s1-soft: #1c5cab;
+    --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --pb: #f0efec;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --border: #2c2c2a; --grid: #252523;
+  --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+  --s1: #6da7ec; --s1-soft: #1c5cab;
+  --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --pb: #f0efec;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 0 0 2px; }
+.sub { color: var(--text-3); font-size: 13px; margin: 0 0 14px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 18px 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; color: var(--text-2); padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--surface); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.tile .k { color: var(--text-3); font-size: 12px; }
+.tile .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .d { color: var(--text-2); font-size: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.axis text { fill: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.grid line { stroke: var(--grid); }
+.tip { position: absolute; pointer-events: none; background: var(--text); color: var(--surface);
+  font-size: 12px; padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -110%);
+  opacity: 0; transition: opacity .1s; font-variant-numeric: tabular-nums; z-index: 2; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.legend i.ring { background: none !important; border: 2px solid var(--pb); border-radius: 50%; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 12px; }
+th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-3); font-weight: 500; }
+.tablewrap { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+.pbtag { font-size: 10px; font-weight: 600; border: 1px solid var(--text-2); border-radius: 4px; padding: 0 4px; margin-left: 4px; color: var(--text-2); }
+.empty { color: var(--text-3); font-size: 13px; padding: 24px 0; text-align: center; }
+.row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Erg Progress</h1>
+  <p class="sub" id="meta"></p>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="toolbar">
+    <span class="sub" style="margin:0">Range</span>
+    <div class="seg" id="range">
+      <button data-v="90">3 mo</button><button data-v="182">6 mo</button>
+      <button data-v="365">12 mo</button><button data-v="0" aria-pressed="true">All</button>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Meters per week</h2>
+    <p class="sub">Every rower session, summed Monday–Sunday.</p>
+    <div class="chart" id="weekly"></div>
+  </section>
+
+  <section class="card">
+    <h2>Season meters</h2>
+    <p class="sub">Cumulative meters from May 1, by Concept2 season.</p>
+    <div class="chart" id="seasons"></div>
+    <div class="legend" id="seasonLegend"></div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <h2>Benchmarks</h2>
+        <p class="sub" id="benchSub">Tests and benchmark pieces over time.</p>
+      </div>
+      <select id="benchPick" aria-label="Benchmark"></select>
+    </div>
+    <div class="seg" id="metric" style="margin-bottom:10px">
+      <button data-v="split" aria-pressed="true">Split</button><button data-v="watts">Watts</button>
+      <button data-v="hr">HR</button><button data-v="w_hr">W/HR</button>
+    </div>
+    <div class="chart" id="bench"></div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Piece</span><span><i class="ring"></i>New best at the time</span></div>
+    <div class="tablewrap"><table id="benchTable"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Steady-state efficiency</h2>
+    <p class="sub" id="ssSub">Watts per heartbeat on continuous low-rate pieces. Higher means more power for the same effort.</p>
+    <div class="chart" id="steady"></div>
+    <div class="legend"><span><i style="background:var(--s1-soft)"></i>Session</span><span><i style="background:var(--s1)"></i>Rolling average</span></div>
+  </section>
+
+  <footer id="foot"></footer>
+</main>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+// ---------- formatting ----------
+const fmtSplit = s => { const m = Math.floor(s / 60), r = s - m * 60; return `${m}:${r.toFixed(1).padStart(4, "0")}`; };
+const fmtTime = s => { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${r.toFixed(1).padStart(4,"0")}` : `${m}:${r.toFixed(1).padStart(4,"0")}`; };
+const fmtM = m => m >= 1e6 ? (m / 1e6).toFixed(2) + "M" : m >= 1e4 ? Math.round(m / 1e3) + "k" : m.toLocaleString();
+const fmtDate = d => new Date(d + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit" });
+const METRICS = {
+  split: { label: "Split /500m", fmt: fmtSplit, invert: true },
+  watts: { label: "Watts", fmt: v => Math.round(v) + " W" },
+  hr:    { label: "Avg HR", fmt: v => Math.round(v) + " bpm" },
+  w_hr:  { label: "W/HR", fmt: v => v.toFixed(2) },
+};
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+
+// ---------- scales ----------
+function niceTicks(lo, hi, n = 5) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(s => s * mag).find(s => s >= raw);
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function timeTicks(t0, t1, w) {
+  const n = Math.max(2, Math.floor(w / 90)), span = t1 - t0, day = 864e5;
+  const out = []; const d = new Date(t0);
+  if (span > 500 * day) { d.setMonth(0, 1); while (d <= t1) { if (d >= t0) out.push(+d); d.setFullYear(d.getFullYear() + 1); }
+    if (out.length < 3) return monthTicks(t0, t1, n); return out; }
+  return monthTicks(t0, t1, n);
+}
+function monthTicks(t0, t1, n) {
+  const months = Math.max(1, Math.round((t1 - t0) / (30.4 * 864e5)));
+  const every = [1, 2, 3, 4, 6, 12].find(e => months / e <= n) || 12;
+  const d = new Date(t0); d.setDate(1); d.setHours(0); const out = [];
+  while (d <= t1) { if (d >= t0 && d.getMonth() % every === 0) out.push(+d); d.setMonth(d.getMonth() + 1); }
+  return out;
+}
+const tickLabel = (t, span) => new Date(t).toLocaleDateString(undefined,
+  span > 500 * 864e5 && new Date(t).getMonth() === 0 ? { year: "numeric" } : { month: "short", year: "2-digit" });
+
+// ---------- generic chart ----------
+// series: [{ points:[{x,y,tip,pb}], color, line:bool, dots:bool, dotR, width }]
+function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yMin0 }) {
+  container.innerHTML = "";
+  const all = series.flatMap(s => s.points);
+  if (!all.length) { container.innerHTML = '<div class="empty">No matching sessions in this range.</div>'; return; }
+  const W = container.clientWidth || 600, H = height, m = { t: 12, r: series.some(s => s.endLabel) ? 54 : 14, b: 26, l: 52 };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" }, container);
+  const tip = document.createElement("div"); tip.className = "tip"; container.appendChild(tip);
+
+  let x0 = Math.min(...all.map(p => p.x)), x1 = Math.max(...all.map(p => p.x));
+  if (bars) x1 += 7 * 864e5; if (x0 === x1) { x0 -= 864e5 * 7; x1 += 864e5 * 7; }
+  let y0 = Math.min(...all.map(p => p.y)), y1 = Math.max(...all.map(p => p.y));
+  if (yMin0 || bars) y0 = 0;
+  const pad = (y1 - y0) * 0.08 || 1; if (!(yMin0 || bars)) y0 -= pad; y1 += pad;
+  const yt = niceTicks(y0, y1); y0 = Math.min(y0, yt[0]); y1 = Math.max(y1, yt[yt.length - 1]);
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+  const Y = v => invert ? m.t + (v - y0) / (y1 - y0) * (H - m.t - m.b) : H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+
+  const g = el("g", { class: "grid" }, svg), ax = el("g", { class: "axis" }, svg);
+  yt.forEach(v => { el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v) }, g);
+    el("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, ax).textContent = yFmt(v); });
+  const xt = xLabel ? xLabel.ticks : timeTicks(x0, x1, W - m.l - m.r);
+  xt.forEach(t => { el("text", { x: X(t), y: H - 6, "text-anchor": "middle" }, ax).textContent =
+    xLabel ? xLabel.fmt(t) : tickLabel(t, x1 - x0); });
+
+  if (bars) {
+    const s = series[0], bw = Math.max(1, (W - m.l - m.r) / ((x1 - x0) / (7 * 864e5)) - 2);
+    s.points.forEach(p => { if (!p.y) return; const h = H - m.b - Y(p.y), r = Math.min(4, bw / 2, h);
+      const x = X(p.x) + 1, y = Y(p.y);
+      el("path", { d: `M${x},${H - m.b}V${y + r}Q${x},${y} ${x + r},${y}H${x + bw - r}Q${x + bw},${y} ${x + bw},${y + r}V${H - m.b}Z`, fill: s.color }, svg); });
+  }
+  series.forEach(s => {
+    if (s.line && s.points.length > 1)
+      el("path", { d: s.points.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(""),
+        fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    if (s.dots) s.points.forEach(p => {
+      el("circle", { cx: X(p.x), cy: Y(p.y), r: s.dotR || 4, fill: s.color, stroke: css("--surface"), "stroke-width": 2 }, svg);
+      if (p.pb) el("circle", { cx: X(p.x), cy: Y(p.y), r: (s.dotR || 4) + 4, fill: "none", stroke: css("--pb"), "stroke-width": 1.5 }, svg);
+    });
+    if (s.endLabel && s.points.length) { const p = s.points[s.points.length - 1];
+      el("text", { x: X(p.x) + 6, y: Y(p.y) + 4, fill: css("--text-2"), "font-size": 11 }, svg).textContent = s.endLabel; }
+  });
+
+  // hover: nearest point across hoverable series
+  const hov = series.filter(s => !s.noHover).flatMap(s => s.points.map(p => ({ ...p, color: s.color })));
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--text-3"), "stroke-dasharray": "3 3", opacity: 0 }, svg);
+  const ring = el("circle", { r: 6, fill: "none", stroke: css("--text"), "stroke-width": 2, opacity: 0 }, svg);
+  const hit = el("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: "transparent" }, svg);
+  const move = ev => {
+    const r = svg.getBoundingClientRect(), mx = (ev.clientX - r.left) * W / r.width;
+    let best = null, bd = Infinity;
+    hov.forEach(p => { const d = Math.abs(X(p.x + (bars ? 3.5 * 864e5 : 0)) - mx); if (d < bd) { bd = d; best = p; } });
+    if (!best) return;
+    const px = X(best.x + (bars ? 3.5 * 864e5 : 0)), py = Y(best.y);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("opacity", 1);
+    if (!bars) { ring.setAttribute("cx", px); ring.setAttribute("cy", py); ring.setAttribute("opacity", 1); }
+    tip.innerHTML = best.tip; tip.style.opacity = 1;
+    tip.style.left = Math.min(Math.max(px * r.width / W, 70), r.width - 70) + "px";
+    tip.style.top = (py * r.height / H) + "px";
+  };
+  hit.addEventListener("pointermove", move); hit.addEventListener("pointerdown", move);
+  hit.addEventListener("pointerleave", () => { tip.style.opacity = 0; cross.setAttribute("opacity", 0); ring.setAttribute("opacity", 0); });
+}
+
+// ---------- state ----------
+const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split" };
+const t = d => +new Date(d + "T12:00");
+const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
+
+function renderTiles() {
+  const s = DATA.summary, cur = DATA.seasons[DATA.seasons.length - 1];
+  const ss = DATA.steady, lastSS = ss[ss.length - 1];
+  const prevSS = ss.filter(x => t(x.date) <= t(lastSS?.date || "1970-01-01") - 90 * 864e5).pop();
+  const tiles = [
+    ["Total meters", fmtM(s.total_meters), `${s.workouts} sessions since ${s.first ? fmtDate(s.first) : "—"}`],
+    ["This season", cur ? fmtM(cur.total) : "—", cur ? cur.season : ""],
+    ["Last 4 weeks", fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.meters, 0)), "meters"],
+    ["W/HR (rolling)", lastSS ? lastSS.w_hr_avg.toFixed(2) : "—",
+      lastSS && prevSS ? `${lastSS.w_hr_avg >= prevSS.w_hr_avg ? "▲" : "▼"} from ${prevSS.w_hr_avg.toFixed(2)} 3 mo ago` : "need HR data"],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(([k, v, d]) =>
+    `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
+}
+
+function renderWeekly() {
+  const pts = DATA.weeks.filter(w => inRange(w.week)).map(w => ({ x: t(w.week), y: w.meters,
+    tip: `Week of ${fmtDate(w.week)}<br><b>${w.meters.toLocaleString()} m</b>` }));
+  chart(document.getElementById("weekly"), { series: [{ points: pts, color: css("--s1") }], yFmt: fmtM, bars: true });
+}
+
+function renderSeasons() {
+  const colors = ["--s4", "--s3", "--s2", "--s1"].slice(-DATA.seasons.length).map(css);
+  const series = DATA.seasons.map((s, i) => ({ color: colors[i], line: true, width: i === DATA.seasons.length - 1 ? 2.5 : 2,
+    endLabel: s.season, points: s.points.map(([d, m]) => ({ x: d, y: m, tip: `${s.season} · day ${d}<br><b>${m.toLocaleString()} m</b>` })) }));
+  const monthStarts = [0, 31, 61, 92, 123, 153, 184, 214, 245, 276, 304, 335];
+  const names = ["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr"];
+  const node = document.getElementById("seasons");
+  chart(node, { series, yFmt: fmtM, yMin0: true,
+    xLabel: { ticks: monthStarts.filter((_, i) => node.clientWidth > 500 || i % 2 === 0), fmt: d => names[monthStarts.indexOf(d)] } });
+  document.getElementById("seasonLegend").innerHTML = DATA.seasons.map((s, i) =>
+    `<span><i style="background:${colors[i]}"></i>${s.season} · ${fmtM(s.total)}</span>`).join("");
+}
+
+function renderBench() {
+  const b = DATA.benchmarks.find(x => x.id === state.bench);
+  const node = document.getElementById("bench"), table = document.getElementById("benchTable");
+  if (!b) { node.innerHTML = '<div class="empty">No benchmark pieces found yet. Check the rules in config.json.</div>'; table.innerHTML = ""; return; }
+  const M = METRICS[state.metric];
+  const rows = b.rows.filter(r => inRange(r.date));
+  const pts = rows.filter(r => r[state.metric] != null).map(r => ({ x: t(r.date), y: r[state.metric], pb: r.pb,
+    tip: `${fmtDate(r.date)}${r.pb ? " · new best" : ""}<br><b>${fmtSplit(r.split)}</b>/500m · ${Math.round(r.watts)} W` +
+      `${r.rate ? ` · r${r.rate}` : ""}${r.hr ? ` · ${Math.round(r.hr)} bpm` : ""}` }));
+  chart(node, { series: [{ points: pts, color: css("--s1"), line: true, dots: true }], yFmt: M.fmt, invert: M.invert });
+  const best = b.rows.reduce((a, r) => !a || r.split < a.split ? r : a, null);
+  document.getElementById("benchSub").textContent =
+    `${b.rows.length} pieces · best ${fmtSplit(best.split)}/500m (${fmtTime(best.seconds)}) on ${fmtDate(best.date)}` +
+    (state.metric !== "split" && !pts.length ? " · no HR recorded on these pieces" : "");
+  table.innerHTML = `<thead><tr><th>Date</th><th>Time</th><th>Meters</th><th>Split</th><th>Watts</th><th>Rate</th><th>HR</th><th>W/HR</th></tr></thead><tbody>` +
+    [...rows].reverse().map(r => `<tr><td>${fmtDate(r.date)}${r.pb ? '<span class="pbtag">PB</span>' : ""}</td><td>${fmtTime(r.seconds)}</td>` +
+      `<td>${r.meters.toLocaleString()}</td><td>${fmtSplit(r.split)}</td><td>${Math.round(r.watts)}</td><td>${r.rate ?? "—"}</td>` +
+      `<td>${r.hr ? Math.round(r.hr) : "—"}</td><td>${r.w_hr ? r.w_hr.toFixed(2) : "—"}</td></tr>`).join("") + "</tbody>";
+}
+
+function renderSteady() {
+  const rows = DATA.steady.filter(r => inRange(r.date));
+  const dots = rows.map(r => ({ x: t(r.date), y: r.w_hr,
+    tip: `${fmtDate(r.date)} · ${fmtM(r.meters)} m<br><b>${r.w_hr.toFixed(2)} W/beat</b> · ${fmtSplit(r.split)} · ${Math.round(r.hr)} bpm · r${r.rate}` }));
+  const avg = rows.map(r => ({ x: t(r.date), y: r.w_hr_avg }));
+  chart(document.getElementById("steady"), { series: [
+    { points: dots, color: css("--s1-soft"), dots: true, dotR: 3.5 },
+    { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: v => v.toFixed(2) });
+}
+
+function renderAll() { renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); }
+
+// ---------- controls ----------
+function seg(id, key, after) {
+  const box = document.getElementById(id);
+  box.addEventListener("click", e => { const btn = e.target.closest("button"); if (!btn) return;
+    box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
+    state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
+}
+seg("range", "range", () => { renderWeekly(); renderBench(); renderSteady(); });
+seg("metric", "metric", renderBench);
+const pick = document.getElementById("benchPick");
+pick.innerHTML = DATA.benchmarks.map(b => `<option value="${b.id}">${b.label} (${b.rows.length})</option>`).join("");
+pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
+
+document.getElementById("meta").textContent = DATA.summary.last
+  ? `${fmtDate(DATA.summary.first)} – ${fmtDate(DATA.summary.last)} · Concept2 Logbook` : "No workouts yet.";
+document.getElementById("foot").textContent = `Built ${DATA.generated}. Watts from split using Concept2's formula; W/HR uses average heart rate.`;
+renderAll();
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderAll, 150); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+</script>
+</body>
+</html>
