@@ -250,7 +250,9 @@ function renderTiles() {
   const ss = DATA.steady, lastSS = ss[ss.length - 1];
   const prevSS = ss.filter(x => t(x.date) <= t(lastSS?.date || "1970-01-01") - 90 * 864e5).pop();
   const tiles = [
-    ["Total meters", fmtM(s.total_meters), `${s.workouts} sessions since ${s.first ? fmtDate(s.first) : "—"}`],
+    ["Lifetime meters", fmtM(s.total_meters), s.catchup_meters
+      ? `incl. ${fmtM(s.catchup_meters)} catchup · ${s.workouts} sessions`
+      : `${s.workouts} sessions since ${s.first ? fmtDate(s.first) : "—"}`],
     ["This season", cur ? fmtM(cur.total) : "—", cur ? cur.season : ""],
     ["Last 4 weeks", fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.meters, 0)), "meters"],
     ["W/HR (rolling)", lastSS ? lastSS.w_hr_avg.toFixed(2) : "—",

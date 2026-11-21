@@ -24,8 +24,12 @@ def parse(r):
     """Normalise one Logbook result into the fields we use."""
     dist = r.get("distance") or 0
     secs = (r.get("time") or 0) / 10.0  # Logbook time is in tenths of a second
-    if dist <= 0 or secs <= 0:
+    if dist <= 0:
         return None
+    if secs <= 0:
+        # Meters with no time, e.g. Logbook catchup entries: count toward volume only.
+        return {"id": r["id"], "date": (r.get("date") or "")[:10], "meters": dist,
+                "seconds": 0, "volume_only": True}
     split = secs / dist * 500
     hr = (r.get("heart_rate") or {}).get("average") or None
     if hr is not None and hr < 50:  # dropouts / bogus values
@@ -91,8 +95,9 @@ def season_of(d, start_month):
 
 
 def build(results, cfg):
-    workouts = [w for w in (parse(r) for r in results) if w]
-    workouts.sort(key=lambda w: w["date"])
+    everything = sorted((w for w in (parse(r) for r in results) if w), key=lambda w: w["date"])
+    workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
+    catchup = [w for w in everything if w.get("volume_only")]
 
     # --- Benchmarks (first matching rule wins, so 30r20 beats the 30-min test) ---
     bench = {b["id"]: {"label": b["label"], "rows": []} for b in cfg["benchmarks"]}
@@ -134,6 +139,8 @@ def build(results, cfg):
     start_month = cfg.get("season_start_month", 5)
     weekly = defaultdict(int)
     seasons = defaultdict(lambda: defaultdict(int))
+    # Catchup meters count toward lifetime meters but, as on the Logbook, not toward
+    # season meters, so weekly and season charts use timed workouts only.
     for w in workouts:
         d = date.fromisoformat(w["date"])
         monday = d - timedelta(days=d.weekday())
@@ -159,13 +166,15 @@ def build(results, cfg):
             pts.append([day, total])
         season_lines.append({"season": f"{s - 1}–{str(s)[-2:]}", "points": pts, "total": total})
 
-    total_m = sum(w["meters"] for w in workouts)
+    total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
     strip = lambda w: {k: v for k, v in w.items() if k != "comments"}
     return {
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "summary": {
             "total_meters": total_m,
             "workouts": len(workouts),
+            "catchup_entries": len(catchup),
+            "catchup_meters": sum(w["meters"] for w in catchup),
             "first": workouts[0]["date"] if workouts else None,
             "last": workouts[-1]["date"] if workouts else None,
         },
@@ -195,7 +204,8 @@ def main():
     s = payload["summary"]
     print(f"Built {args.out}: {s['workouts']} workouts, {s['total_meters']:,} m, "
           f"{sum(len(b['rows']) for b in payload['benchmarks'])} benchmark pieces, "
-          f"{len(payload['steady'])} steady-state sessions")
+          f"{len(payload['steady'])} steady-state sessions, "
+          f"{s['catchup_entries']} catchup/untimed entries ({s['catchup_meters']:,} m)")
 
 
 if __name__ == "__main__":
