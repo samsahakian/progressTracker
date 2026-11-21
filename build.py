@@ -214,6 +214,11 @@ def build(results, cfg, manual_catchup=(), water=()):
         d = date.fromisoformat(w["date"])
         weekly_water[(d - timedelta(days=d.weekday())).isoformat()] += w["meters"]
     seasons = defaultdict(lambda: defaultdict(int))
+    seasons_water = defaultdict(lambda: defaultdict(int))
+    for w in water:  # catchup stays out: it's mostly practice that Garmin already has
+        d = date.fromisoformat(w["date"])
+        ws = season_of(d, start_month)
+        seasons_water[ws][(d - date(ws - 1, start_month, 1)).days] += w["meters"]
     # Catchup meters count toward lifetime and weekly meters but, as on the Logbook,
     # not toward season meters.
     for w in everything:
@@ -237,13 +242,23 @@ def build(results, cfg, manual_catchup=(), water=()):
             weeks.append({"week": k, "meters": weekly.get(k, 0), "water": weekly_water.get(k, 0)})
             cur += timedelta(days=7)
 
-    season_lines = []
-    for s in sorted(seasons):
+    def cumulative(days):
         total, pts = 0, []
-        for day in sorted(seasons[s]):
-            total += seasons[s][day]
+        for day in sorted(days):
+            total += days[day]
             pts.append([day, total])
-        season_lines.append({"season": f"{s - 1}–{str(s)[-2:]}", "points": pts, "total": total})
+        return pts, total
+
+    season_lines = []
+    for s in sorted(set(seasons) | set(seasons_water)):
+        both = defaultdict(int)
+        for src in (seasons.get(s, {}), seasons_water.get(s, {})):
+            for day, m in src.items():
+                both[day] += m
+        line = {"season": f"{s - 1}–{str(s)[-2:]}"}
+        for key, days in (("", seasons.get(s, {})), ("water_", seasons_water.get(s, {})), ("all_", both)):
+            line[key + "points"], line[key + "total"] = cumulative(days)
+        season_lines.append(line)
 
     total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
     strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits")}

@@ -101,8 +101,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   </section>
 
   <section class="card">
-    <h2>Season meters</h2>
-    <p class="sub">Cumulative meters from May 1, by Concept2 season.</p>
+    <div class="row">
+      <div><h2>Season meters</h2><p class="sub" id="seasonSub">Cumulative meters from May 1, by Concept2 season.</p></div>
+      <div class="seg" id="seasonSrc" hidden><button data-v="" aria-pressed="true">Erg</button><button data-v="water_">Water</button><button data-v="all_">Erg + water</button></div>
+    </div>
     <div class="chart" id="seasons"></div>
     <div class="legend" id="seasonLegend"></div>
   </section>
@@ -280,7 +282,7 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 
 // ---------- state ----------
 const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
-  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", view: "time" };
+  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", view: "time", seasonSrc: "" };
 try { if (localStorage.getItem("view") === "season") state.view = "season"; } catch (e) {}
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
@@ -407,13 +409,20 @@ function overlay(node, rows, { yFmt, invert, mode = "trend", rolling = DATA.stea
 }
 
 function renderSeasons() {
-  const colors = ["--s4", "--s3", "--s2", "--s1"].slice(-DATA.seasons.length).map(css);
-  const series = DATA.seasons.map((s, i) => ({ color: colors[i], line: true, width: i === DATA.seasons.length - 1 ? 2.5 : 2,
-    endLabel: s.season, points: s.points.map(([d, m]) => ({ x: d, y: m, tip: `${s.season} · day ${d}<br><b>${m.toLocaleString()} m</b>` })) }));
+  const src = DATA.water.length ? state.seasonSrc : "";
+  document.getElementById("seasonSrc").hidden = !DATA.water.length;
+  const list = DATA.seasons.filter(x => x[src + "points"].length);
+  const series = list.map((x, i) => ({ color: seasonColor(x.season), line: true, width: i === list.length - 1 ? 2.5 : 2,
+    endLabel: x.season, points: x[src + "points"].map(([d, m]) => ({ x: d, y: m,
+      tip: `${x.season} · ${MONTH_NAMES[MONTH_STARTS.filter(s => s <= d).length - 1]} ${d - MONTH_STARTS.filter(s => s <= d).pop() + 1}<br><b>${m.toLocaleString()} m</b>` })) }));
   const node = document.getElementById("seasons");
   chart(node, { series, yFmt: fmtM, yMin0: true, ...seasonAxis(node) });
-  document.getElementById("seasonLegend").innerHTML = DATA.seasons.map((s, i) =>
-    `<span><i style="background:${colors[i]}"></i>${s.season} · ${fmtM(s.total)}</span>`).join("");
+  document.getElementById("seasonSub").textContent = {
+    "": "Cumulative erg meters from May 1, by Concept2 season (matches your Logbook season totals).",
+    water_: "Cumulative on-water meters from May 1, by season (from Garmin).",
+    all_: "Cumulative erg + on-water meters from May 1, by season. Catchup entries are left out so practices aren't counted twice." }[src];
+  document.getElementById("seasonLegend").innerHTML = list.map(x =>
+    `<span><i style="background:${seasonColor(x.season)}"></i>${x.season} · ${fmtM(x[src + "total"])}</span>`).join("");
 }
 
 function renderBench() {
@@ -504,6 +513,7 @@ function applyView() {  // range only applies to the timeline
   try { localStorage.setItem("view", state.view); } catch (e) {}
 }
 seg("view", "view", () => { applyView(); renderAll(); });
+seg("seasonSrc", "seasonSrc", renderSeasons);
 seg("waterMetric", "waterMetric", renderWater);
 seg("logKind", "logKind", renderLog);
 seg("metric", "metric", renderBench);
