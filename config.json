@@ -111,7 +111,13 @@
     "drift_min_minutes": 30,
     "drift_flag_pct": 5,
     "easy_target_pct": 80,
-    "z3_flag_pct": 15
+    "z3_flag_pct": 15,
+    "rhr_baseline_days": [
+      8,
+      37
+    ],
+    "rhr_flag_bpm": 4,
+    "rhr_flag_days": 3
   },
   "goals": [
     {

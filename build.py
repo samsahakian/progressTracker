@@ -288,7 +288,43 @@ def load_water(path):
     return out
 
 
-def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None):
+def recovery_series(daily, acts, ath):
+    """Daily resting HR / sleep / HRV with the coach's baseline, plus weekly Garmin load and lifts."""
+    b0, b1 = ath.get("rhr_baseline_days", [8, 37])
+    flag_bpm = ath.get("rhr_flag_bpm", 4)
+    days = sorted(daily)
+    out = []
+    for d in days:
+        v = daily[d]
+        dd = date.fromisoformat(d)
+        past = [daily.get((dd - timedelta(days=k)).isoformat(), {}).get("rhr") for k in range(b0, b1 + 1)]
+        past = sorted(x for x in past if x)
+        last7 = [daily.get((dd - timedelta(days=k)).isoformat(), {}) for k in range(7)]
+        r7 = [x["rhr"] for x in last7 if x.get("rhr")]
+        s7 = [x["sleep_s"] for x in last7 if x.get("sleep_s")]
+        out.append({
+            "date": d, "rhr": v.get("rhr"), "hrv": v.get("hrv"),
+            "sleep_h": round(v["sleep_s"] / 3600, 2) if v.get("sleep_s") else None,
+            "rhr7": round(sum(r7) / len(r7), 1) if r7 else None,
+            "sleep7": round(sum(s7) / len(s7) / 3600, 2) if s7 else None,
+            "base": past[len(past) // 2] if len(past) >= 10 else None,
+        })
+    for r in out:
+        r["high"] = bool(r["rhr"] and r["base"] and r["rhr"] >= r["base"] + flag_bpm)
+    load, lifts = defaultdict(float), defaultdict(int)
+    for a in acts:
+        if not a.get("date"):
+            continue
+        d = date.fromisoformat(a["date"])
+        wk = (d - timedelta(days=d.weekday())).isoformat()
+        load[wk] += a.get("load") or 0
+        if "strength" in (a.get("type") or ""):
+            lifts[wk] += 1
+    weeks = sorted(set(load) | set(lifts))
+    return out, [{"week": w, "load": round(load[w]), "lifts": lifts[w]} for w in weeks]
+
+
+def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_daily=None, garmin_acts=()):
     everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
     everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
@@ -430,12 +466,15 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None):
     for w in water:
         daily[w["date"]]["water"] += w["meters"]
 
+    recovery, load_weeks = recovery_series(garmin_daily or {}, garmin_acts, cfg.get("athlete", {}))
     tz = ZoneInfo(cfg.get("timezone", "America/Chicago"))
     return {
         "generated": datetime.now(tz).strftime("%Y-%m-%d %H:%M"),
         "daily": dict(sorted(daily.items())),
         "goals": cfg.get("goals", []),
         "intensity": intensity,
+        "recovery": recovery,
+        "load_weeks": load_weeks,
         "efficiency": efficiency,
         "drift": drift,
         "strokes_coverage": [with_strokes, len(workouts)],
@@ -484,8 +523,11 @@ def main():
 
     cfg = json.loads((ROOT / "config.json").read_text())
     water = load_water(args.data.parent / "water.json")
+    gd, ga = args.data.parent / "garmin_daily.json", args.data.parent / "garmin_activities.json"
     payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"), water,
-                    args.data.parent / "strokes")
+                    args.data.parent / "strokes",
+                    json.loads(gd.read_text()) if gd.exists() else {},
+                    json.loads(ga.read_text()) if ga.exists() else [])
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
@@ -507,6 +549,16 @@ def main():
         print("Last weeks easy/mod/hard/nohr (min):", [(x["week"], x["easy"] // 60, x["moderate"] // 60, x["hard"] // 60, x["nohr"] // 60) for x in last])
     if payload["drift"]:
         print("Recent drift %:", [(x["date"], x["drift"]) for x in payload["drift"][-6:]])
+    rec = payload["recovery"]
+    if rec:
+        tail = rec[-1]
+        streak = 0
+        for r in reversed(rec):
+            if not r["high"]:
+                break
+            streak += 1
+        print(f"Recovery: {len(rec)} days; latest {tail['date']} rhr {tail['rhr']} (7d {tail['rhr7']}, baseline {tail['base']}), "
+              f"sleep7 {tail['sleep7']} h, hrv {tail['hrv']}; high-RHR streak {streak}; load weeks {len(payload['load_weeks'])}")
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
           f"low-confidence {s['types_low']}")
 

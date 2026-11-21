@@ -60,6 +60,8 @@ h2 { font-size: 17px; margin: 0 0 2px; }
 .flags li.warn { border-left-color: var(--s4); }
 .flags li.good { border-left-color: var(--s3); }
 .flags li b { font-weight: 600; }
+h3.mini { font-size: 13px; font-weight: 600; margin: 14px 0 2px; }
+h3.mini span { color: var(--text-3); font-weight: 400; margin-left: 6px; }
 h3.totals { font-size: 13px; color: var(--text-3); font-weight: 500; margin: 18px 0 8px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; }
 .chart { position: relative; width: 100%; }
@@ -83,7 +85,7 @@ th { color: var(--text-3); font-weight: 500; }
 select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 #ssWin { max-width: 100%; overflow-x: auto; }
-@media (max-width: 480px) { .seg button { padding: 6px 8px; } }
+@media (max-width: 480px) { .seg button { padding: 6px 8px; } .tile .v { font-size: 20px; } .tile.na .v { font-size: 16px; } }
 </style>
 </head>
 <body>
@@ -128,6 +130,20 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <p class="sub" id="driftSub"></p>
     <div class="chart" id="drift"></div>
     <div class="legend" id="driftLegend"></div>
+  </section>
+
+  <section class="card">
+    <h2>Load vs recovery</h2>
+    <p class="sub" id="recSub"></p>
+    <h3 class="mini">Weekly training load <span>Garmin, all activities</span></h3>
+    <div class="chart" id="recLoad"></div>
+    <h3 class="mini">Resting HR <span id="rhrNote"></span></h3>
+    <div class="chart" id="recRhr"></div>
+    <h3 class="mini">Sleep <span>7-day average, hours</span></h3>
+    <div class="chart" id="recSleep"></div>
+    <h3 class="mini">Lifts per week <span>Garmin strength sessions</span></h3>
+    <div class="chart" id="recLifts"></div>
+    <div class="legend" id="recLegend"></div>
   </section>
 
   <h3 class="totals">Totals</h3>
@@ -408,7 +424,14 @@ function renderThisWeek() {
   } else tiles.push(["% easy (Z1–Z2)", "—", DATA.strokes_coverage[0] ? "no erg HR this week yet" : "needs per-stroke HR", "na"]);
   const wd = DATA.drift.filter(r => r.date >= monday && r.drift > (a.drift_flag_pct ?? 5));
   if (wd.length) flags.push(["warn", `<b>HR drift ${wd.map(r => r.drift.toFixed(1) + "%").join(", ")}</b> on ${wd.length === 1 ? "a steady session" : "steady sessions"} this week (flag at ${a.drift_flag_pct ?? 5}%). Check fueling, heat and sleep, or ease the pace.`]);
-  tiles.push(["Resting HR, 7 days", "Needs Garmin daily data", `vs baseline ${DATA.athlete.resting_hr_baseline ?? "—"} bpm`, "na"]);
+  const rl = DATA.recovery[DATA.recovery.length - 1];
+  if (rl && rl.rhr7) {
+    const diff = rl.base ? rl.rhr7 - rl.base : null, streak = rhrStreak();
+    tiles.push(["Resting HR, 7 days", `${rl.rhr7.toFixed(0)} bpm`,
+      `${rl.base ? `baseline ${rl.base} · ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}` : "baseline building"}${rl.sleep7 ? ` · sleep ${rl.sleep7.toFixed(1)} h` : ""}`]);
+    if (streak >= (A().rhr_flag_days ?? 3))
+      flags.push(["warn", `<b>Resting HR ${A().rhr_flag_bpm ?? 4}+ bpm over baseline for ${streak} days</b> (${rl.rhr} today vs ${rl.base}). Consider an easier day.`]);
+  } else tiles.push(["Resting HR, 7 days", "Needs Garmin daily data", `vs baseline ${DATA.athlete.resting_hr_baseline ?? "—"} bpm`, "na"]);
   document.getElementById("weekTiles").innerHTML = tiles.map(([k, v, d, cls]) =>
     `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
   document.getElementById("flags").innerHTML = flags.slice(0, 3).map(([c, h]) => `<li class="${c}">${h}</li>`).join("");
@@ -502,6 +525,42 @@ function renderDrift() {
     { points: rolling28(rows, "drift").filter(p => inRange(p.date)), color: css("--s1"), line: true, width: 2.5, noHover: true }] });
   document.getElementById("driftLegend").innerHTML = TREND_LEGEND("s1") + `<span><i class="ring"></i>Over ${flag}%</span>`;
 }
+
+function renderRecovery() {
+  const a = A(), rec = DATA.recovery, lw = DATA.load_weeks;
+  const [b0, b1] = a.rhr_baseline_days || [8, 37], fb = a.rhr_flag_bpm ?? 4, fd = a.rhr_flag_days ?? 3;
+  document.getElementById("recSub").textContent = rec.length
+    ? `Resting HR baseline = median of days ${b0}–${b1} back, so a high stretch can't hide itself. Days at baseline + ${fb} or more are ringed; ${fd}+ in a row raises a flag. Garmin load doesn't include erg sessions the watch didn't record.`
+    : "";
+  document.getElementById("rhrNote").textContent = `daily, 7-day average, baseline + ${fb}`;
+  const ids = ["recLoad", "recRhr", "recSleep", "recLifts"];
+  if (!rec.length && !lw.length) { ids.forEach(id => needs(document.getElementById(id), "Garmin daily data (set GARMIN_API_KEY)")); return; }
+  const H = 150, season = state.view === "season";
+  const wk = lw.filter(w => season || inRange(w.week)), days = rec.filter(r => season || inRange(r.date));
+  if (season) {
+    overlay(document.getElementById("recLoad"), lw.map(w => ({ date: w.week, y: w.load, tip: `Week of ${fmtDate(w.week)}<br><b>${w.load}</b> load` })), { yFmt: v => Math.round(v), mode: "line", yMin0: true });
+    overlay(document.getElementById("recRhr"), rec.filter(r => r.rhr7).map(r => ({ date: r.date, y: r.rhr7, tip: `${fmtDate(r.date)}<br>7-day <b>${r.rhr7} bpm</b>` })), { yFmt: v => Math.round(v), mode: "line" });
+    overlay(document.getElementById("recSleep"), rec.filter(r => r.sleep7).map(r => ({ date: r.date, y: r.sleep7, tip: `${fmtDate(r.date)}<br>7-day <b>${r.sleep7.toFixed(1)} h</b>` })), { yFmt: v => v.toFixed(1) + " h", mode: "line" });
+    overlay(document.getElementById("recLifts"), lw.map(w => ({ date: w.week, y: w.lifts, tip: `Week of ${fmtDate(w.week)}<br><b>${w.lifts}</b> lifts` })), { yFmt: v => v.toFixed(0), mode: "line", yMin0: true });
+    document.getElementById("recLegend").innerHTML = seasonLegend([...new Set(rec.map(r => seasonOf(r.date).label))].filter(seasonColor).sort());
+    return;
+  }
+  chart(document.getElementById("recLoad"), { height: H, bars: true, yFmt: v => Math.round(v), events: EVENTS(),
+    series: [{ color: css("--s1"), points: wk.map(w => ({ x: t(w.week), y: w.load, tip: `Week of ${fmtDate(w.week)}<br>Load <b>${w.load}</b> · ${w.lifts} lifts` })) }] });
+  chart(document.getElementById("recRhr"), { height: H, yFmt: v => Math.round(v), events: EVENTS(), series: [
+    { points: days.filter(r => r.base).map(r => ({ x: t(r.date), y: r.base + fb })), color: css("--s4"), line: true, width: 1, dash: "5 4", noHover: true },
+    { points: days.filter(r => r.rhr).map(r => ({ x: t(r.date), y: r.rhr, pb: r.high,
+      tip: `${fmtDate(r.date)}<br>Resting <b>${r.rhr} bpm</b> · 7-day ${r.rhr7 ?? "—"}<br>Baseline ${r.base ?? "—"}${r.hrv ? ` · HRV ${r.hrv} ms` : ""}` })), color: css("--s1-soft"), dots: true, dotR: 2.5 },
+    { points: days.filter(r => r.rhr7).map(r => ({ x: t(r.date), y: r.rhr7 })), color: css("--s1"), line: true, width: 2.5, noHover: true }] });
+  chart(document.getElementById("recSleep"), { height: H, yFmt: v => v.toFixed(1) + " h", events: EVENTS(), series: [
+    { points: days.filter(r => r.sleep7).map(r => ({ x: t(r.date), y: r.sleep7, tip: `${fmtDate(r.date)}<br>7-day avg <b>${r.sleep7.toFixed(1)} h</b>${r.sleep_h ? ` · last night ${r.sleep_h.toFixed(1)} h` : ""}` })), color: css("--s3"), line: true, width: 2 }] });
+  chart(document.getElementById("recLifts"), { height: 120, bars: true, yFmt: v => Number.isInteger(v) ? String(v) : "", events: EVENTS(),
+    series: [{ color: css("--s2"), points: wk.map(w => ({ x: t(w.week), y: w.lifts, tip: `Week of ${fmtDate(w.week)}<br><b>${w.lifts}</b> strength sessions` })) }] });
+  document.getElementById("recLegend").innerHTML = '<span><i style="background:var(--s1-soft)"></i>Daily resting HR</span>' +
+    '<span><i style="background:var(--s1)"></i>7-day average</span>' + `<span><i style="background:var(--s4)"></i>Baseline + ${fb} (dashed)</span><span><i class="ring"></i>At or above it</span>`;
+}
+
+function rhrStreak() { let n = 0; for (let i = DATA.recovery.length - 1; i >= 0 && DATA.recovery[i].high; i--) n++; return n; }
 
 function renderGoal() {
   const g = DATA.goals.find(x => x.id === state.goal) || currentGoal()?.g;
@@ -750,7 +809,7 @@ function renderSteady() {
     { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: fmt, invert: false });
 }
 
-function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderDrift(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
+function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderDrift(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -759,7 +818,7 @@ function seg(id, key, after) {
     box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
     state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
 }
-seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderDrift(); renderWeekly(); renderBench(); renderSteady(); renderWater(); renderLog(); });
+seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderDrift(); renderRecovery(); renderWeekly(); renderBench(); renderSteady(); renderWater(); renderLog(); });
 function applyView() {  // range only applies to the timeline
   const off = state.view === "season";
   for (const id of ["range", "rangeLbl"]) { const e = document.getElementById(id);
