@@ -108,7 +108,7 @@
       5,
       35
     ],
-    "drift_min_minutes": 45,
+    "drift_min_minutes": 50,
     "drift_flag_pct": 5,
     "easy_target_pct": 80,
     "z3_flag_pct": 15,
@@ -119,15 +119,19 @@
     "rhr_flag_bpm": 4,
     "rhr_flag_days": 3,
     "drift_window_min": [
-      5,
-      45
+      10,
+      50
     ],
     "hard_sessions_target": 2,
     "garmin_hard_min": 8,
     "garmin_hard_hr": 150,
     "short_piece_min": 5,
     "steady_reference_split": "2:09",
-    "threshold_reference_split": "1:58"
+    "threshold_reference_split": "1:58",
+    "garmin_min_minutes": 10,
+    "hr_artifact_bpm": 20,
+    "hr_artifact_seconds": 5,
+    "tod_min_sessions": 5
   },
   "goals": [
     {

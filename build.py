@@ -205,6 +205,20 @@ def load_strokes(path):
     return out
 
 
+def clean_hr(track, jump=20, within=5):
+    """Drop HR readings that jump more than `jump` bpm from the last good reading in under `within` s (coach #2.1)."""
+    out, last_t, last_hr, dropped = [], None, None, 0
+    for t, d, hr in track:
+        if hr and last_hr and abs(hr - last_hr) > jump and t - last_t < within:
+            out.append((t, d, 0))
+            dropped += 1
+            continue
+        if hr:
+            last_t, last_hr = t, hr
+        out.append((t, d, hr))
+    return out, dropped
+
+
 def zone_of(hr, zones):
     for name, top in zones:
         if hr <= top:
@@ -267,8 +281,10 @@ def stroke_metrics(strokes, ath, min_valid):
         ef1, ef2 = h1["speed"] / h1["hr"], h2["speed"] / h2["hr"]
         return round((ef1 - ef2) / ef1 * 100, 2), [[round(h1["split"], 1), round(h1["hr"])], [round(h2["split"], 1), round(h2["hr"])]]
 
-    d0, d1 = (m * 60 for m in ath.get("drift_window_min", [5, 45]))
-    if end >= d1 - 5:  # fixed window, so short and long pieces compare fairly (coach E13)
+    if end >= 45 * 60 - 5:  # previous window (min 5-45), kept for comparison in the build log
+        out["drift_5_45"], _ = drift_between(300, 1500, min(2700, end))
+    d0, d1 = (m * 60 for m in ath.get("drift_window_min", [10, 50]))
+    if end >= d1 - 5:  # fixed window, so short and long pieces compare fairly (coach E13, #2.2)
         out["drift"], out["halves"] = drift_between(d0, (d0 + d1) / 2, min(d1, end))
         if out["drift"] is None:
             del out["drift"], out["halves"]
@@ -471,15 +487,21 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         dedupe_counts = {"garmin_indoor": len(garmin_indoor), "matched": sum(1 for v in matched.values() if v),
                          "garmin_only": sum(1 for v in matched.values() if not v), **{f"by_{k}": v for k, v in how.items()}}
         hard_min, hard_hr = ath.get("garmin_hard_min", 8), ath.get("garmin_hard_hr", 150)
+        artifact_log = []
         for g in garmin_indoor:
             if matched[g["id"]]:
                 continue
+            if (g["elapsed"] or g["seconds"]) < ath.get("garmin_min_minutes", 10) * 60:  # fragment: hidden, not typed (#2.5)
+                indoor_only.append({**g, "type": "fragment", "type_src": "", "low": False, "sm": None})
+                continue
             p = fit_dir / f"{g['id']}.json" if fit_dir else None
-            tr = json.loads(p.read_text()) if p and p.exists() else []
-            sm = stroke_metrics([tuple(x) for x in tr], {**ath, "efficiency_window_min": [10**5, 10**5]}, min_valid) if tr else None
+            tr = [tuple(x) for x in json.loads(p.read_text())] if p and p.exists() else []
+            raw_sm = stroke_metrics(tr, {**ath, "efficiency_window_min": [10**5, 10**5]}, min_valid) if tr else None
+            tr, dropped = clean_hr(tr, ath.get("hr_artifact_bpm", 20), ath.get("hr_artifact_seconds", 5))
+            sm = stroke_metrics(tr, {**ath, "efficiency_window_min": [10**5, 10**5]}, min_valid) if tr else None
             if sm and not sm["zones"]:
                 sm = None
-            tt = title_type(g["name"])
+            tt, z3 = title_type(g["name"]), None
             if tt:
                 typ, src, low = tt, "title", False
             else:
@@ -493,6 +515,10 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
                 else:
                     typ = "other"
             indoor_only.append({**g, "type": typ, "type_src": src, "low": low, "sm": sm})
+            if raw_sm:
+                z3_raw = sum(v for z, v in raw_sm["zones"].items() if z not in easy_z)
+                artifact_log.append((g["date"], g["name"], dropped, round(z3_raw / 60, 1), round((z3 or 0) / 60, 1),
+                                     raw_sm.get("avg_hr"), (sm or {}).get("avg_hr"), typ))
             if sm:
                 d = date.fromisoformat(g["date"])
                 x = wk[(d - timedelta(days=d.weekday())).isoformat()]
@@ -545,7 +571,8 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
                    "w_hr": round(watts_from_split(w["sm"]["win"]["split"]) / w["sm"]["win"]["hr"], 3)}
                   for w in workouts if w["stype"] == "steady" and w["sm"] and w["sm"].get("win")]
     drift = [{"date": w["date"], "minutes": round(w["seconds"] / 60), "drift": w["sm"]["drift"], "halves": w["sm"]["halves"],
-              "whole": w["sm"].get("drift_whole"), "split": w["split"], "hr": w["hr"], "src": "Erg", "tod": w["tod"], "start": w["start_t"]}
+              "whole": w["sm"].get("drift_whole"), "old": w["sm"].get("drift_5_45"), "split": w["split"], "hr": w["hr"], "src": "Erg",
+              "tod": w["tod"], "start": w["start_t"]}
              for w in workouts if w["stype"] == "steady" and w["sm"] and "drift" in w["sm"]]
     for g in indoor_only:
         if g["type"] == "steady" and g["sm"] and "drift" in g["sm"]:
@@ -707,6 +734,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         "tod_report": tod_report,
         "time_weeks": load_time,
         "dedupe": dedupe_counts,
+        "artifacts": artifact_log if garmin_indoor else [],
         "indoor_counts": {t: sum(g["type"] == t for g in indoor_only) for t in ("hard", "steady", "other", "threshold", "race_pace", "test")},
         "events": cfg.get("events", []),
         "athlete": cfg.get("athlete", {}),
@@ -740,7 +768,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             [{"kind": "Indoor (Garmin)", "date": g["date"], "name": g["name"], "meters": None,
               "seconds": g["elapsed"] or g["seconds"], "split": None, "rate": g.get("rate"),
               "hr": (g["sm"] or {}).get("avg_hr") or g.get("hr"), "type": g["type"], "type_src": g["type_src"],
-              "low": g["low"], "short": (g["elapsed"] or g["seconds"]) < ath.get("short_piece_min", 5) * 60,
+              "low": g["low"], "short": g["type"] == "fragment" or (g["elapsed"] or g["seconds"]) < ath.get("short_piece_min", 5) * 60,
               "tod": g["tod"], "start": g["start_t"]}
              for g in indoor_only],
             key=lambda r: r["date"]),
@@ -802,6 +830,11 @@ def main():
     print("Time of day (steady sessions in the efficiency window, early/midday/evening; early-minus-evening median pace at HR s, W/HR):")
     for r in payload["tod_report"]:
         print(f"  {r['quarter']}: {r['counts']} pace diff {r['pace_diff']} (n {r['pace_n']}), W/HR diff {r['whr_diff']}")
+    for a_ in payload["artifacts"]:
+        if a_[2] or a_[0] == "2025-07-04":
+            print(f"  HR artifacts {a_[0]} '{a_[1]}': dropped {a_[2]} readings; Z3+ {a_[3]} -> {a_[4]} min; avg HR {a_[5]} -> {a_[6]}; type {a_[7]}")
+    print("Drift, recent: date, min 10-50 (new), min 5-45 (old), whole piece:",
+          [(r["date"], r["drift"], r.get("old"), r.get("whole")) for r in payload["drift"][-6:]])
     print(f"Garmin indoor dedupe: {payload['dedupe']}; Garmin-only types: {payload['indoor_counts']}")
     print(f"Session types before interval HR-first: {s['types_before']}")
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "

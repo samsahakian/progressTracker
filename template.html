@@ -132,12 +132,23 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   </section>
 
   <section class="card">
-    <h2>HR drift</h2>
-    <p class="sub" id="driftSub"></p>
-    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day</label>
-    <div class="chart" id="drift"></div>
-    <div class="legend" id="driftLegend"></div>
+    <div class="row">
+      <div>
+        <h2>Benchmark pieces</h2>
+        <p class="sub" id="benchSub">Tests and benchmark pieces over time.</p>
+      </div>
+    </div>
+    <div class="toolbar" style="margin:0 0 10px"><div class="seg" id="benchChips"></div>
+      <select id="benchPick" aria-label="More formats"></select></div>
+    <div class="seg" id="metric" style="margin-bottom:10px">
+      <button data-v="split" aria-pressed="true">Split</button><button data-v="watts">Watts</button>
+      <button data-v="hr">HR</button><button data-v="w_hr">W/HR</button>
+    </div>
+    <div class="chart" id="bench"></div>
+    <div class="legend" id="benchLegend"></div>
+    <div class="tablewrap"><table id="benchTable"></table></div>
   </section>
+
 
   <section class="card">
     <h2>Load vs recovery</h2>
@@ -152,6 +163,15 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="chart" id="recLifts"></div>
     <div class="legend" id="recLegend"></div>
   </section>
+
+  <section class="card">
+    <h2>HR drift</h2>
+    <p class="sub" id="driftSub"></p>
+    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day</label>
+    <div class="chart" id="drift"></div>
+    <div class="legend" id="driftLegend"></div>
+  </section>
+
 
   <h3 class="totals">Totals</h3>
   <div class="tiles" id="tiles"></div>
@@ -184,24 +204,6 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="legend" id="seasonLegend"></div>
   </section>
 
-  <section class="card">
-    <div class="row">
-      <div>
-        <h2>Benchmark pieces</h2>
-        <p class="sub" id="benchSub">Tests and benchmark pieces over time.</p>
-      </div>
-    </div>
-    <div class="toolbar" style="margin:0 0 10px"><div class="seg" id="benchChips"></div>
-      <select id="benchPick" aria-label="More formats"></select></div>
-    <div class="seg" id="metric" style="margin-bottom:10px">
-      <button data-v="split" aria-pressed="true">Split</button><button data-v="watts">Watts</button>
-      <button data-v="hr">HR</button><button data-v="w_hr">W/HR</button>
-    </div>
-    <div class="chart" id="bench"></div>
-    <div class="legend" id="benchLegend"></div>
-    <div class="tablewrap"><table id="benchTable"></table></div>
-  </section>
-
   <section class="card" id="waterCard" hidden>
     <h2>On the water</h2>
     <p class="sub" id="waterSub"></p>
@@ -221,7 +223,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
         <select id="logType" aria-label="Session type"><option value="">All types</option><option value="steady">Steady</option>
           <option value="threshold">Threshold</option><option value="race_pace">Race pace</option><option value="test">Test</option>
           <option value="hard">Hard (Garmin)</option><option value="other">Other</option><option value="low">Low-confidence only</option></select>
-        <label class="sub check" style="margin:0"><input type="checkbox" id="logShort"> Pieces under 5 min</label>
+        <label class="sub check" style="margin:0"><input type="checkbox" id="logShort"> Short pieces</label>
       </div>
     </div>
     <div class="tablewrap" style="max-height:420px"><table id="logTable"></table></div>
@@ -499,12 +501,14 @@ function renderEfficiency() {
 function renderTodReport() {
   const rep = DATA.tod_report || [], el = document.getElementById("todReport");
   if (!rep.length) { el.innerHTML = ""; return; }
-  const f = v => v == null ? "—" : (v > 0 ? "+" : "") + v;
+  const f = v => v == null ? "—" : (v > 0 ? "+" : "") + v, minN = A().tod_min_sessions ?? 5;
+  const few = r => Math.min(r.counts.early, r.counts.evening) < minN;
   el.innerHTML = `<summary>Early vs evening, by quarter</summary><p class="sub" style="margin:6px 0">Steady sessions per time of day, and the ` +
-    `early-minus-evening median difference where both exist. Pace at HR: positive = early sessions slower. W/HR: negative = early less efficient.</p>` +
+    `early-minus-evening median difference where both have at least ${minN} sessions. Pace at HR: positive = early sessions slower. W/HR: negative = early less efficient.</p>` +
     `<div class="tablewrap"><table><thead><tr><th>Quarter</th><th>Early</th><th>Midday</th><th>Evening</th><th>Pace at HR, s</th><th>W/HR</th></tr></thead><tbody>` +
     rep.map(r => `<tr><td>${r.quarter}</td><td>${r.counts.early}</td><td>${r.counts.midday}</td><td>${r.counts.evening}</td>` +
-      `<td>${f(r.pace_diff)}${r.pace_diff != null ? ` <span class="sub">(${r.pace_n[0]} vs ${r.pace_n[1]})</span>` : ""}</td><td>${f(r.whr_diff)}</td></tr>`).join("") + "</tbody></table></div>";
+      (few(r) ? `<td colspan="2" class="sub" style="text-align:right">${r.counts.early || r.counts.evening ? "Too few overlapping sessions to estimate the time-of-day effect" : "—"}</td></tr>`
+        : `<td>${f(r.pace_diff)} <span class="sub">(${r.pace_n[0]} vs ${r.pace_n[1]})</span></td><td>${f(r.whr_diff)}</td></tr>`)).join("") + "</tbody></table></div>";
 }
 
 function renderHard() {
@@ -724,7 +728,7 @@ function renderWater() {
     "Whole-session averages, so warm-ups and paddling are included; split depends on wind and current, so HR and rate trend best.";
 }
 
-const TYPE_LABEL = { steady: "Steady", threshold: "Threshold", race_pace: "Race pace", test: "Test", other: "Other", water: "Water", hard: "Hard" };
+const TYPE_LABEL = { steady: "Steady", threshold: "Threshold", race_pace: "Race pace", test: "Test", other: "Other", water: "Water", hard: "Hard", fragment: "Fragment" };
 function renderLog() {
   const k = state.logKind, ty = state.logType;
   const rows = DATA.sessions.filter(r => (k === "all" || r.kind === k) && inRange(r.date) && (state.logShort || !r.short)
@@ -735,7 +739,7 @@ function renderLog() {
     ["steady", "threshold", "race_pace", "test", "other"].map(x => `${TYPE_LABEL[x].toLowerCase()} ${c[x] || 0}`).join(", ") +
     `. ${n - DATA.summary.types_tagged} inferred, ${DATA.summary.types_tagged} tagged; <b>?</b> = low-confidence (${DATA.summary.types_low}).` +
     ` Override a type with #steady #threshold #race #test #other in the Logbook comment, or a Garmin activity title containing hard, steady, threshold, race or test.` +
-    (state.logShort ? "" : ` ${hiddenShort} pieces under 5 min hidden (still counted in totals).`);
+    (state.logShort ? "" : ` ${hiddenShort} short pieces hidden (erg < 5 min, Garmin indoor < 10 min; still counted in totals).`);
   document.getElementById("logTable").innerHTML =
     `<thead><tr><th>Date</th><th>Start</th><th style="text-align:left">Type</th><th style="text-align:left">Session</th><th>Meters</th><th>Time</th><th>Split</th><th>Rate</th><th>HR</th></tr></thead><tbody>` +
     rows.map(r => `<tr><td>${fmtDate(r.date)}</td><td title="${r.tod ? TOD_LABEL[r.tod] : ""}">${r.start || "—"}${r.tod ? ` <span style="color:${todColor(r.tod)}">●</span>` : ""}</td>` +
