@@ -177,7 +177,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   <section class="card">
     <div class="row">
       <div>
-        <h2>Benchmarks</h2>
+        <h2>Benchmark pieces</h2>
         <p class="sub" id="benchSub">Tests and benchmark pieces over time.</p>
       </div>
       <select id="benchPick" aria-label="Benchmark"></select>
@@ -759,7 +759,8 @@ function renderBench() {
   }
   const best = b.rows.reduce((a, r) => !a || r.split < a.split ? r : a, null);
   document.getElementById("benchSub").textContent =
-    `${b.rows.length} pieces · best ${fmtSplit(best.split)}/500m (${fmtTime(best.seconds)}) on ${fmtDate(best.date)}` +
+    `${TYPE_LABEL[b.type]} sessions with the same format only. ${b.rows.length} pieces · best ${fmtSplit(best.split)}/500m (${fmtTime(best.seconds)}) on ${fmtDate(best.date)}` +
+    (b.rows.some(r => r.rest) ? ` · splits are work only` : "") +
     (state.metric !== "split" && !pts.length ? " · no HR recorded on these pieces" : "");
   table.innerHTML = `<thead><tr><th>Date</th><th>Time</th><th>Meters</th><th>Split</th><th>Watts</th><th>Rate</th><th>HR</th><th>W/HR</th></tr></thead><tbody>` +
     [...rows].reverse().map(r => `<tr><td>${fmtDate(r.date)}${r.pb ? '<span class="pbtag">PB</span>' : ""}</td><td>${fmtTime(r.seconds)}</td>` +
@@ -860,7 +861,10 @@ seg("ssMetric", "ssMetric", renderSteady);
   }
 })();
 const pick = document.getElementById("benchPick");
-pick.innerHTML = DATA.benchmarks.map(b => `<option value="${b.id}">${b.label} (${b.rows.length})</option>`).join("");
+pick.innerHTML = ["test", "threshold", "race_pace", "steady", "other"].map(ty => {
+  const gs = DATA.benchmarks.filter(b => b.type === ty);
+  return gs.length ? `<optgroup label="${TYPE_LABEL[ty]}">` + gs.map(b => `<option value="${b.id}">${b.label} (${b.rows.length})</option>`).join("") + "</optgroup>" : "";
+}).join("");
 pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
 
 document.getElementById("meta").textContent = DATA.summary.last

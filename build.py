@@ -4,6 +4,7 @@
 Standard library only. Benchmark rules live in config.json.
 """
 import argparse
+import hashlib
 import csv
 import json
 from collections import defaultdict
@@ -51,7 +52,44 @@ def parse(r):
         "w_hr": round(watts / hr, 3) if hr else None,
         "comments": (r.get("comments") or "").lower(),
         "splits": parse_splits(r),
+        "intervals": parse_intervals(r),
     }
+
+
+def parse_intervals(r):
+    """[(work_seconds, work_meters, rest_seconds, kind), ...] for interval workouts."""
+    out = []
+    for iv in ((r.get("workout") or {}).get("intervals") or []):
+        out.append(((iv.get("time") or 0) / 10.0, iv.get("distance") or 0,
+                    (iv.get("rest_time") or 0) / 10.0, iv.get("type") or ""))
+    return out
+
+
+def fmt_dist(m):
+    return f"{m / 1000:g}k" if m >= 1000 and m % 100 == 0 else f"{m:g}m"
+
+
+def fmt_dur(sec):
+    sec = int(round(sec))
+    return f"{sec // 60}min" if sec % 60 == 0 else f"{sec // 60}:{sec % 60:02d}"
+
+
+def workout_format(w):
+    """A label that identifies the workout format, e.g. '5×1k', '3×12min', '6k', 'Continuous ~25 min'."""
+    ivs, wt = w["intervals"], w["workout_type"]
+    if ivs:
+        n = len(ivs)
+        by_dist = wt == "FixedDistanceInterval" or (wt != "FixedTimeInterval" and all(k == "distance" for *_, k in ivs))
+        vals = [round(d / 50) * 50 for _, d, _, _ in ivs] if by_dist else [round(t / 5) * 5 for t, _, _, _ in ivs]
+        f = fmt_dist if by_dist else fmt_dur
+        if len(set(vals)) == 1:
+            return f"{n}×{f(vals[0])}"
+        return "/".join(f(v) for v in vals) if n <= 6 else f"Variable, {n} intervals"
+    if w["meters"] in (500, 1000, 2000, 5000, 6000, 10000, 21097):
+        return fmt_dist(w["meters"])
+    if wt == "FixedTimeSplits" or abs(w["seconds"] - round(w["seconds"] / 60) * 60) <= 2:
+        return f"{round(w['seconds'] / 60)} min"
+    return f"Continuous ~{max(5, round(w['seconds'] / 300) * 5)} min"
 
 
 def parse_splits(r):
@@ -389,6 +427,27 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             marked.append({**w, "pb": pb})
         b["rows"] = marked
 
+    # --- Benchmark pieces grouped by format (coach P2): threshold, race pace and tests only ---
+    bench_of = {w["id"]: v["label"] for v in bench.values() for w in v["rows"]}
+    formats = defaultdict(list)
+    for w in workouts:
+        if w["stype"] in ("threshold", "race_pace", "test") or w["id"] in bench_of:
+            formats[bench_of.get(w["id"]) or workout_format(w)].append(w)
+    format_groups = []
+    for label, rows in formats.items():
+        run_best, marked = None, []
+        for w in rows:
+            pb = run_best is None or w["split"] < run_best
+            run_best = w["split"] if pb else run_best
+            rest = [iv[2] for iv in w["intervals"]]
+            marked.append({**w, "pb": pb, "rest": round(sum(rest) / len(rest)) if rest else None})
+        types = defaultdict(int)
+        for w in rows:
+            types[w["stype"]] += 1
+        format_groups.append({"id": "f" + hashlib.md5(label.encode()).hexdigest()[:8], "label": label,
+                              "type": max(types, key=types.get), "rows": marked})
+    format_groups.sort(key=lambda g: (-len(g["rows"]), g["label"]))
+
     # --- Steady-state efficiency (W/HR) ---
     ss = cfg["steady_state"]
     windows = ss.get("windows", [40, 60, 65, 70, 75, 80])
@@ -457,7 +516,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         season_lines.append(line)
 
     total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
-    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits", "stype_low", "stype_src", "sm")}
+    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits", "intervals", "stype_low", "stype_src", "sm")}
     # Daily meters for goal pacing. Erg = Logbook timed results only (no catchup), like
     # Concept2's challenge count; water = Garmin outdoor rowing.
     daily = defaultdict(lambda: {"erg": 0, "water": 0})
@@ -505,10 +564,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
               "type": "water", "type_src": "", "low": False} for w in water],
             key=lambda r: r["date"]),
         "seasons": season_lines[-4:],  # last four seasons keeps the chart readable
-        "benchmarks": [
-            {"id": k, "label": v["label"], "rows": [strip(w) for w in v["rows"]]}
-            for k, v in bench.items() if v["rows"]
-        ],
+        "benchmarks": [{**g, "rows": [strip(w) for w in g["rows"]]} for g in format_groups],
         "steady": [strip(w) for w in steady],
         "steady_cfg": {"windows": windows, "default": str(ss.get("default_window", 60)),
                        "rolling": ss.get("rolling_sessions", 5), "min_minutes": ss["min_minutes"]},
@@ -559,6 +615,7 @@ def main():
             streak += 1
         print(f"Recovery: {len(rec)} days; latest {tail['date']} rhr {tail['rhr']} (7d {tail['rhr7']}, baseline {tail['base']}), "
               f"sleep7 {tail['sleep7']} h, hrv {tail['hrv']}; high-RHR streak {streak}; load weeks {len(payload['load_weeks'])}")
+    print("Benchmark formats:", ", ".join(f"{g['label']} ({len(g['rows'])})" for g in payload["benchmarks"]))
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
           f"low-confidence {s['types_low']}")
 
