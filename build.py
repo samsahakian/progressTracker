@@ -395,6 +395,29 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         for z, secs_ in w["sm"]["zones"].items():
             x["zones"][z] += secs_
             x["easy" if z in easy_z else "moderate" if z in mod_z else "hard"] += secs_
+    # On-water HR from Garmin FIT tracks joins the same weekly buckets (time in zone only: on-water
+    # speed depends on wind and current, so no drift or efficiency from it).
+    fit_dir = strokes_dir.parent / "fit" if strokes_dir else None
+    water_with_hr = 0
+    for w in water:
+        p = fit_dir / f"{w['id'][1:]}.json" if fit_dir else None
+        if not p or not p.exists():
+            continue
+        tr = json.loads(p.read_text())
+        if not tr:
+            continue
+        sm = stroke_metrics([tuple(x) for x in tr], {**ath, "drift_min_minutes": 10**6, "efficiency_window_min": [10**5, 10**5]}, min_valid)
+        if not sm["zones"]:
+            continue
+        water_with_hr += 1
+        d = date.fromisoformat(w["date"])
+        x = wk[(d - timedelta(days=d.weekday())).isoformat()]
+        x["water_sessions"] = x.get("water_sessions", 0) + 1
+        x["nohr"] += sm["nohr"]
+        for z, secs_ in sm["zones"].items():
+            x["zones"][z] += secs_
+            x["water_s"] = x.get("water_s", 0) + secs_
+            x["easy" if z in easy_z else "moderate" if z in mod_z else "hard"] += secs_
     intensity = [{"week": k, **{kk: (dict(vv) if kk == "zones" else vv) for kk, vv in v.items()}} for k, v in sorted(wk.items())]
 
     # Aerobic efficiency (steady only, fixed window) and drift (steady, long enough)
@@ -537,6 +560,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         "efficiency": efficiency,
         "drift": drift,
         "strokes_coverage": [with_strokes, len(workouts)],
+        "water_hr_coverage": [water_with_hr, len(water)],
         "events": cfg.get("events", []),
         "athlete": cfg.get("athlete", {}),
         "summary": {
@@ -598,6 +622,7 @@ def main():
     print("Steady-state pieces per first-N-minutes window:", counts)
     print(f"On-water sessions: {s['water_sessions']} ({s['water_meters']:,} m)")
     cov = payload["strokes_coverage"]
+    print(f"On-water HR tracks: {payload['water_hr_coverage'][0]}/{payload['water_hr_coverage'][1]} sessions")
     print(f"Stroke data: {cov[0]}/{cov[1]} sessions; {len(payload['efficiency'])} steady sessions in the efficiency window, "
           f"{len(payload['drift'])} with drift; {len(payload['intensity'])} weeks of zone data")
     if payload["intensity"]:

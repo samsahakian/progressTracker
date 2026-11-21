@@ -20,16 +20,18 @@ OUT = Path(__file__).parent / "data" / "water.json"
 ACT_OUT = Path(__file__).parent / "data" / "garmin_activities.json"
 DAILY_OUT = Path(__file__).parent / "data" / "garmin_daily.json"
 DAILY_DAYS = 400  # history for resting HR, sleep and HRV
+FIT_DIR = Path(__file__).parent / "data" / "fit"  # cached [[t, m, hr], ...] per on-water session
 PAGE = 100
 
 
-def call(method, path, headers, params=None):
+def call(method, path, headers, params=None, raw=False):
     url = BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
     req = urllib.request.Request(url, method=method, headers={"User-Agent": "c2-progress/1.0", **headers})
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return r.read().decode()
+            with urllib.request.urlopen(req, timeout=60) as r:
+                body = r.read()
+                return body if raw else body.decode()
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503, 504) and attempt < 3:
                 time.sleep(5 * 2 ** attempt)
@@ -130,9 +132,32 @@ def main():
     ACT_OUT.write_text(json.dumps(acts))
     print(f"Saved {len(acts)} activities (date, type, training load) to {ACT_OUT}")
     try:
+        fit_tracks(rows, headers)
+    except Exception as e:  # optional; never lose the rowing data over it
+        print(f"::warning::Garmin FIT download skipped: {e}")
+    try:
         daily(headers)
     except SystemExit as e:  # wellness data is optional; never lose the rowing data over it
         print(f"::warning::Garmin daily data skipped: {e}")
+
+
+def fit_tracks(rows, headers):
+    """Download and cache HR/distance tracks for on-water sessions (only new ones)."""
+    import fitlite
+    FIT_DIR.mkdir(parents=True, exist_ok=True)
+    todo = [r for r in rows if r["id"] and not (FIT_DIR / f"{r['id']}.json").exists()]
+    print(f"FIT tracks: {len(rows) - len(todo)} cached, {len(todo)} to download")
+    for r in todo:
+        data = call("GET", f"/download-service/files/activity/{r['id']}",
+                    {**headers, "Accept": "application/zip, application/octet-stream"}, raw=True)
+        try:
+            tr = fitlite.track(data)
+        except Exception as e:
+            print(f"  {r['id']}: could not read FIT ({e})")
+            tr = []
+        (FIT_DIR / f"{r['id']}.json").write_text(json.dumps(tr, separators=(",", ":")))
+        time.sleep(0.3)
+    print(f"FIT tracks cached: {len(list(FIT_DIR.glob('*.json')))}")
 
 
 def paths(obj, prefix=""):

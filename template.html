@@ -418,7 +418,7 @@ function renderThisWeek() {
   tiles.push(["Meters this week", fmtM(erg), DATA.water.length ? `erg · ${fmtM(water)} on water` : "erg"]);
   const iw = DATA.intensity.find(x => x.week === monday), ip = iw && weekPct(iw), a = A();
   if (ip) {
-    tiles.push(["% easy (Z1–Z2)", `${Math.round(ip.easy)}%`, `Z3 ${Math.round(ip.mod)}% · hard ${Math.round(ip.hard)}% · erg, ${Math.round(ip.tot / 60)} min`]);
+    tiles.push(["% easy (Z1–Z2)", `${Math.round(ip.easy)}%`, `Z3 ${Math.round(ip.mod)}% · hard ${Math.round(ip.hard)}% · ${Math.round(ip.tot / 60)} min${iw.water_s ? " incl. water" : ""}`]);
     if (ip.mod > (a.z3_flag_pct ?? 15)) flags.push(["warn", `<b>Z3 is ${Math.round(ip.mod)}% of erg time this week</b> (limit ${a.z3_flag_pct ?? 15}%). Keep steady pieces at or below ${a.efficiency_hr_band?.[1] ?? 149} bpm.`]);
     else if (ip.easy < (a.easy_target_pct ?? 80) && ip.tot >= 60 * 60) flags.push(["warn", `<b>${Math.round(ip.easy)}% easy this week</b>, under the ${a.easy_target_pct ?? 80}% target.`]);
   } else tiles.push(["% easy (Z1–Z2)", "—", DATA.strokes_coverage[0] ? "no erg HR this week yet" : "needs per-stroke HR", "na"]);
@@ -479,10 +479,12 @@ function weekPct(w) { const tot = w.easy + w.moderate + w.hard; return tot ? { e
 function renderIntensity() {
   const node = document.getElementById("int"), a = A(), target = a.easy_target_pct ?? 80, z3 = a.z3_flag_pct ?? 15;
   const rows = DATA.intensity.map(w => ({ ...w, p: weekPct(w) })).filter(w => w.p && w.p.tot >= 20 * 60);
-  document.getElementById("intSub").textContent = `Share of erg time per week in easy (Z1–Z2), Z3 and hard (Z4+) zones, from per-stroke HR. ` +
-    `Target ≥ ${target}% easy; weeks with Z3 over ${z3}% are flagged. Rest between intervals isn't recorded, so it isn't counted. On-water time needs Garmin FIT data.`;
+  const wc = DATA.water_hr_coverage || [0, 0];
+  document.getElementById("intSub").textContent = `Share of rowing time per week in easy (Z1–Z2), Z3 and hard (Z4+) zones: erg from per-stroke HR` +
+    (wc[0] ? `, on-water from Garmin HR (${wc[0]} of ${wc[1]} sessions)` : "") + `. Target ≥ ${target}% easy; weeks with Z3 over ${z3}% are flagged. ` +
+    `Rest between erg intervals isn't recorded, so it isn't counted.`;
   if (!rows.length) return needs(node, "per-stroke HR data");
-  const tip = w => `Week of ${fmtDate(w.week)} · ${Math.round(w.p.tot / 60)} min with HR<br>Easy <b>${Math.round(w.p.easy)}%</b> · Z3 <b>${Math.round(w.p.mod)}%</b>` +
+  const tip = w => `Week of ${fmtDate(w.week)} · ${Math.round(w.p.tot / 60)} min with HR${w.water_s ? ` (${Math.round(w.water_s / 60)} on water)` : ""}<br>Easy <b>${Math.round(w.p.easy)}%</b> · Z3 <b>${Math.round(w.p.mod)}%</b>` +
     `${w.p.mod > z3 ? " ⚑" : ""} · Hard <b>${Math.round(w.p.hard)}%</b>`;
   if (state.view === "season") {
     const labels = overlay(node, rows.map(w => ({ date: w.week, y: w.p.easy, tip: tip(w) })), { yFmt: v => Math.round(v) + "%", mode: "line" });

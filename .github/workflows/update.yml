@@ -39,7 +39,9 @@ jobs:
       - name: Restore stroke cache
         uses: actions/cache/restore@v4
         with:
-          path: data/strokes
+          path: |
+            data/strokes
+            data/fit
           key: strokes-${{ github.run_id }}
           restore-keys: strokes-
 
@@ -55,13 +57,6 @@ jobs:
           OUT_DIR: ${{ runner.temp }}
         run: C2_TOKEN="$(cat "$OUT_DIR/access_token")" python3 strokes.py
 
-      - name: Save stroke cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/strokes
-          key: strokes-${{ github.run_id }}
-
       - name: Forget access token
         if: always()
         run: rm -f "${{ runner.temp }}/access_token"
@@ -74,6 +69,15 @@ jobs:
         run: |
           if [ -z "$GARMIN_API_KEY" ]; then echo "Garmin not set up; skipping."; exit 0; fi
           python3 garmin.py
+
+      - name: Save stroke and FIT cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/strokes
+            data/fit
+          key: strokes-${{ github.run_id }}
 
       - name: Build dashboard
         run: python3 build.py
