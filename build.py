@@ -49,7 +49,48 @@ def parse(r):
         "hr": hr,
         "w_hr": round(watts / hr, 3) if hr else None,
         "comments": (r.get("comments") or "").lower(),
+        "splits": parse_splits(r),
     }
+
+
+def parse_splits(r):
+    """[(seconds, meters, hr or None), ...] from the result's recorded splits."""
+    out = []
+    for sp in ((r.get("workout") or {}).get("splits") or []):
+        secs = (sp.get("time") or 0) / 10.0
+        hr_info = sp.get("heart_rate") or {}
+        hr = hr_info.get("average") or hr_info.get("ending") or None
+        if secs > 0:
+            out.append((secs, sp.get("distance") or 0, hr if hr and hr >= 50 else None))
+    return out
+
+
+def first_minutes(w, minutes, min_hr_coverage=0.9):
+    """Pace, HR and W/HR over the first `minutes` of a piece, from its splits.
+
+    None when the piece is shorter than that, or HR covers < 90% of the window.
+    """
+    target = minutes * 60
+    if w["seconds"] < target - 5 or not w["splits"]:
+        return None
+    t = m = hr_t = hr_sum = 0.0
+    for secs, dist, hr in w["splits"]:
+        take = min(secs, target - t)
+        if take <= 0:
+            break
+        frac = take / secs
+        t += take
+        m += dist * frac
+        if hr:
+            hr_t += take
+            hr_sum += hr * take
+    if t < target - 5 or m <= 0 or hr_t < min_hr_coverage * t:
+        return None
+    split = t / m * 500
+    watts = watts_from_split(split)
+    hr = hr_sum / hr_t
+    return {"split": round(split, 1), "watts": round(watts, 1), "hr": round(hr, 1),
+            "w_hr": round(watts / hr, 3)}
 
 
 def is_single_piece(w):
@@ -136,18 +177,16 @@ def build(results, cfg, manual_catchup=()):
 
     # --- Steady-state efficiency (W/HR) ---
     ss = cfg["steady_state"]
-    steady = [
-        w for w in workouts
-        if w["id"] not in benchmark_ids
-        and is_single_piece(w)
-        and w["seconds"] >= ss["min_minutes"] * 60
-        and w["rate"] and w["rate"] <= ss["max_rate"]
-        and w["w_hr"]
-    ]
-    n = ss.get("rolling_sessions", 5)
-    for i, w in enumerate(steady):
-        window = steady[max(0, i - n + 1): i + 1]
-        w["w_hr_avg"] = round(sum(x["w_hr"] for x in window) / len(window), 3)
+    windows = ss.get("windows", [40, 60, 65, 70, 75, 80])
+    steady = []
+    for w in workouts:
+        if (w["id"] in benchmark_ids or not is_single_piece(w)
+                or w["seconds"] < ss["min_minutes"] * 60
+                or not w["rate"] or w["rate"] > ss["max_rate"]):
+            continue
+        win = {str(n): v for n in windows if (v := first_minutes(w, n))}
+        if w["w_hr"] or win:
+            steady.append({**w, "win": win})
 
     # --- Volume ---
     start_month = cfg.get("season_start_month", 5)
@@ -183,7 +222,7 @@ def build(results, cfg, manual_catchup=()):
         season_lines.append({"season": f"{s - 1}–{str(s)[-2:]}", "points": pts, "total": total})
 
     total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
-    strip = lambda w: {k: v for k, v in w.items() if k != "comments"}
+    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits")}
     return {
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "summary": {
@@ -201,6 +240,8 @@ def build(results, cfg, manual_catchup=()):
             for k, v in bench.items() if v["rows"]
         ],
         "steady": [strip(w) for w in steady],
+        "steady_cfg": {"windows": windows, "default": str(ss.get("default_window", 60)),
+                       "rolling": ss.get("rolling_sessions", 5), "min_minutes": ss["min_minutes"]},
     }
 
 

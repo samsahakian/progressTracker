@@ -12,7 +12,10 @@
     "_help": "Pieces used for the W/HR efficiency trend: continuous, at least min_minutes long, at or under max_rate, with heart rate recorded.",
     "min_minutes": 30,
     "max_rate": 22,
-    "rolling_sessions": 5
+    "rolling_sessions": 5,
+    "_windows_help": "The chart can measure just the first N minutes of each piece (from its splits), so long and short pieces compare fairly. default_window picks the starting view.",
+    "windows": [40, 60, 65, 70, 75, 80],
+    "default_window": 60
   },
   "season_start_month": 5
 }

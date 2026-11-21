@@ -74,6 +74,8 @@ th { color: var(--text-3); font-weight: 500; }
 .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
+#ssWin { max-width: 100%; overflow-x: auto; }
+@media (max-width: 480px) { .seg button { padding: 6px 8px; } }
 </style>
 </head>
 <body>
@@ -122,7 +124,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 
   <section class="card">
     <h2>Steady-state efficiency</h2>
-    <p class="sub" id="ssSub">Watts per heartbeat on continuous low-rate pieces. Higher means more power for the same effort.</p>
+    <p class="sub" id="ssSub"></p>
+    <div class="toolbar" style="margin:0 0 10px"><span class="sub" style="margin:0">First</span><div class="seg" id="ssWin"></div></div>
     <div class="chart" id="steady"></div>
     <div class="legend"><span><i style="background:var(--s1-soft)"></i>Session</span><span><i style="background:var(--s1)"></i>Rolling average</span></div>
   </section>
@@ -241,13 +244,13 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 }
 
 // ---------- state ----------
-const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split" };
+const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default };
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
 
 function renderTiles() {
   const s = DATA.summary, cur = DATA.seasons[DATA.seasons.length - 1];
-  const ss = DATA.steady, lastSS = ss[ss.length - 1];
+  const ss = steadyRows(DATA.steady_cfg.default), lastSS = ss[ss.length - 1];
   const prevSS = ss.filter(x => t(x.date) <= t(lastSS?.date || "1970-01-01") - 90 * 864e5).pop();
   const tiles = [
     ["Lifetime meters", fmtM(s.total_meters), s.catchup_meters
@@ -255,7 +258,7 @@ function renderTiles() {
       : `${s.workouts} sessions since ${s.first ? fmtDate(s.first) : "—"}`],
     ["This season", cur ? fmtM(cur.total) : "—", cur ? cur.season : ""],
     ["Last 4 weeks", fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.meters, 0)), "meters"],
-    ["W/HR (rolling)", lastSS ? lastSS.w_hr_avg.toFixed(2) : "—",
+    [DATA.steady_cfg.default === "all" ? "W/HR (rolling)" : `W/HR, first ${DATA.steady_cfg.default} min`, lastSS ? lastSS.w_hr_avg.toFixed(2) : "—",
       lastSS && prevSS ? `${lastSS.w_hr_avg >= prevSS.w_hr_avg ? "▲" : "▼"} from ${prevSS.w_hr_avg.toFixed(2)} 3 mo ago` : "need HR data"],
   ];
   document.getElementById("tiles").innerHTML = tiles.map(([k, v, d]) =>
@@ -301,11 +304,30 @@ function renderBench() {
       `<td>${r.hr ? Math.round(r.hr) : "—"}</td><td>${r.w_hr ? r.w_hr.toFixed(2) : "—"}</td></tr>`).join("") + "</tbody>";
 }
 
+// Steady-state rows for a window ("all" = whole piece), with a rolling average.
+function steadyRows(win) {
+  const rows = DATA.steady.map(r => {
+    const v = win === "all" ? (r.w_hr ? r : null) : r.win[win];
+    return v ? { date: r.date, meters: r.meters, seconds: r.seconds, rate: r.rate,
+      split: v.split, hr: v.hr, w_hr: v.w_hr } : null;
+  }).filter(Boolean);
+  const n = DATA.steady_cfg.rolling;
+  rows.forEach((r, i) => { const w = rows.slice(Math.max(0, i - n + 1), i + 1);
+    r.w_hr_avg = w.reduce((a, x) => a + x.w_hr, 0) / w.length; });
+  return rows;
+}
+
 function renderSteady() {
-  const rows = DATA.steady.filter(r => inRange(r.date));
+  const win = state.ssWin;
+  const rows = steadyRows(win).filter(r => inRange(r.date));
   const dots = rows.map(r => ({ x: t(r.date), y: r.w_hr,
-    tip: `${fmtDate(r.date)} · ${fmtM(r.meters)} m<br><b>${r.w_hr.toFixed(2)} W/beat</b> · ${fmtSplit(r.split)} · ${Math.round(r.hr)} bpm · r${r.rate}` }));
+    tip: `${fmtDate(r.date)} · ${Math.round(r.seconds / 60)} min piece<br><b>${r.w_hr.toFixed(2)} W/beat</b>` +
+      ` · ${fmtSplit(r.split)} · ${Math.round(r.hr)} bpm · r${r.rate}${win === "all" ? "" : `<br>over the first ${win} min`}` }));
   const avg = rows.map(r => ({ x: t(r.date), y: r.w_hr_avg }));
+  document.getElementById("ssSub").textContent = (win === "all"
+    ? `Watts per heartbeat over each whole piece (continuous, ${DATA.steady_cfg.min_minutes}+ min, rate ≤ 22).`
+    : `Watts per heartbeat over the first ${win} minutes of each piece at least that long, so long and short pieces compare fairly.`) +
+    ` Higher means more power for the same effort. ${rows.length} pieces.`;
   chart(document.getElementById("steady"), { series: [
     { points: dots, color: css("--s1-soft"), dots: true, dotR: 3.5 },
     { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: v => v.toFixed(2) });
@@ -322,6 +344,10 @@ function seg(id, key, after) {
 }
 seg("range", "range", () => { renderWeekly(); renderBench(); renderSteady(); });
 seg("metric", "metric", renderBench);
+document.getElementById("ssWin").innerHTML = DATA.steady_cfg.windows.map(n =>
+  `<button data-v="${n}" aria-pressed="${String(n) === DATA.steady_cfg.default}">${n}m</button>`).join("") +
+  `<button data-v="all" aria-pressed="${DATA.steady_cfg.default === "all"}">Whole</button>`;
+seg("ssWin", "ssWin", renderSteady);
 const pick = document.getElementById("benchPick");
 pick.innerHTML = DATA.benchmarks.map(b => `<option value="${b.id}">${b.label} (${b.rows.length})</option>`).join("");
 pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
