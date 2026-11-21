@@ -34,12 +34,37 @@ jobs:
           bash tools/token_state.sh save "$OUT_DIR/refresh_token"
           rm -f "$OUT_DIR/refresh_token"
 
+      # Per-stroke data is cached between runs (Actions cache is private to the repo),
+      # so only new sessions are downloaded each day.
+      - name: Restore stroke cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/strokes
+          key: strokes-${{ github.run_id }}
+          restore-keys: strokes-
+
       - name: Pull Concept2 Logbook
         env:
           OUT_DIR: ${{ runner.temp }}
         run: |
           C2_TOKEN="$(cat "$OUT_DIR/access_token")" python3 sync.py
-          rm -f "$OUT_DIR/access_token"
+
+      - name: Pull per-stroke data
+        continue-on-error: true
+        env:
+          OUT_DIR: ${{ runner.temp }}
+        run: C2_TOKEN="$(cat "$OUT_DIR/access_token")" python3 strokes.py
+
+      - name: Save stroke cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/strokes
+          key: strokes-${{ github.run_id }}
+
+      - name: Forget access token
+        if: always()
+        run: rm -f "${{ runner.temp }}/access_token"
 
       # Optional: skipped until GARMIN_API_KEY is set. A Garmin problem never blocks the erg dashboard.
       - name: Pull Garmin on-water sessions
