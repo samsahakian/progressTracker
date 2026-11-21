@@ -43,6 +43,9 @@ main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
 h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
 h2 { font-size: 17px; margin: 0 0 2px; }
 .sub { color: var(--text-3); font-size: 13px; margin: 0 0 14px; }
+.controls { position: sticky; top: 0; z-index: 5; background: var(--bg); margin: 0 -16px 4px; padding: 10px 16px;
+  border-bottom: 1px solid transparent; transition: border-color .15s; }
+.controls.stuck { border-bottom-color: var(--border); }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 18px 0; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
 .seg button { border: 0; background: none; color: var(--text-2); padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -87,13 +90,26 @@ th { color: var(--text-3); font-weight: 500; }
 .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
-@media (max-width: 480px) { .seg button { padding: 6px 8px; } .tile .v { font-size: 20px; } .tile.na .v { font-size: 16px; } }
+.seg { max-width: 100%; overflow-x: auto; }
+.seg button { white-space: nowrap; }
+.sm { display: none; }
+@media (max-width: 480px) { #rangeLbl, .lg { display: none; } .sm { display: inline; } .controls { gap: 6px; padding: 8px 16px; flex-wrap: nowrap; }
+  .controls .seg button { padding: 6px 7px; font-size: 12.5px; }
+  .seg button { padding: 6px 8px; } .tile .v { font-size: 20px; } .tile.na .v { font-size: 16px; } }
 </style>
 </head>
 <body>
 <main>
   <h1>Rowing Progress</h1>
   <p class="sub" id="meta"></p>
+  <div class="toolbar controls" id="controls">
+    <div class="seg" id="view"><button data-v="time" aria-pressed="true">Timeline</button><button data-v="season"><span class="lg">By season</span><span class="sm">Seasons</span></button></div>
+    <span class="sub" style="margin:0 0 0 8px" id="rangeLbl">Range</span>
+    <div class="seg" id="range">
+      <button data-v="90"><span class="lg">3 mo</span><span class="sm">3m</span></button><button data-v="182"><span class="lg">6 mo</span><span class="sm">6m</span></button>
+      <button data-v="365"><span class="lg">12 mo</span><span class="sm">1y</span></button><button data-v="0" aria-pressed="true">All</button>
+    </div>
+  </div>
 
   <section class="card week" id="thisWeek">
     <h2>This week</h2>
@@ -175,15 +191,6 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 
   <h3 class="totals">Totals</h3>
   <div class="tiles" id="tiles"></div>
-
-  <div class="toolbar">
-    <div class="seg" id="view"><button data-v="time" aria-pressed="true">Timeline</button><button data-v="season">By season</button></div>
-    <span class="sub" style="margin:0 0 0 8px" id="rangeLbl">Range</span>
-    <div class="seg" id="range">
-      <button data-v="90">3 mo</button><button data-v="182">6 mo</button>
-      <button data-v="365">12 mo</button><button data-v="0" aria-pressed="true">All</button>
-    </div>
-  </div>
 
   <section class="card">
     <h2>Meters per week</h2>
@@ -887,6 +894,8 @@ document.getElementById("meta").textContent = DATA.summary.last
 document.getElementById("foot").textContent = `Built ${DATA.generated}. Watts from split using Concept2's formula; W/HR uses average heart rate.`;
 applyView();
 renderAll();
+{ const c = document.getElementById("controls"), probe = document.createElement("div");  // hairline once pinned
+  c.before(probe); new IntersectionObserver(([e]) => c.classList.toggle("stuck", !e.isIntersecting)).observe(probe); }
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderAll, 150); });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
 </script>
