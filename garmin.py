@@ -57,6 +57,15 @@ def pick(a, *keys):
     return None
 
 
+def stroke_rate(a):
+    """Average strokes/min. Garmin sends no average rate for rowing, so use strokes / moving time."""
+    direct = pick(a, "avgStrokeCadence", "averageStrokeCadence", "avgStrokeRate")
+    if direct:
+        return direct
+    strokes, secs = pick(a, "strokes"), pick(a, "movingDuration", "duration")
+    return round(strokes / (secs / 60), 1) if strokes and secs else None
+
+
 def type_key(a):
     t = a.get("activityType") or {}
     return (t.get("typeKey") if isinstance(t, dict) else str(t)) or ""
@@ -96,9 +105,9 @@ def main():
                 "elapsed": round(pick(a, "elapsedDuration", "duration") or 0),
                 "hr": pick(a, "averageHR", "averageHeartRate"),
                 "max_hr": pick(a, "maxHR", "maxHeartRate"),
-                "rate": pick(a, "avgStrokeCadence", "averageStrokeCadence", "avgStrokeRate",
-                             "averageRunningCadenceInStepsPerMinute"),
+                "rate": stroke_rate(a),
                 "strokes": pick(a, "strokes", "totalNumberOfStrokes"),
+                "dps": pick(a, "avgStrokeDistance"),  # meters per stroke
                 "device": a.get("deviceId"),
             })
         print(f"  scanned {start + len(batch)} activities…", file=sys.stderr)

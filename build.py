@@ -161,7 +161,8 @@ def load_water(path):
                     "meters": a["meters"], "seconds": a["seconds"], "split": round(split, 1),
                     "hr": round(a["hr"]) if a.get("hr") else None,
                     "max_hr": round(a["max_hr"]) if a.get("max_hr") else None,
-                    "rate": round(a["rate"], 1) if a.get("rate") else None})
+                    "rate": round(a["rate"], 1) if a.get("rate") else None,
+                    "dps": round(a["dps"], 2) if a.get("dps") else None})
     return out
 
 

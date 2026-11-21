@@ -142,7 +142,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <p class="sub" id="waterSub"></p>
     <div class="seg" id="waterMetric" style="margin-bottom:10px">
       <button data-v="hr" aria-pressed="true">HR</button><button data-v="rate">Rate</button>
-      <button data-v="split">Split</button><button data-v="meters">Meters</button>
+      <button data-v="split">Split</button><button data-v="dps">m/stroke</button><button data-v="meters">Meters</button>
     </div>
     <div class="chart" id="water"></div>
     <div class="legend"><span><i style="background:var(--s2-soft)"></i>Session</span><span><i style="background:var(--s2)"></i>Rolling average</span></div>
@@ -321,11 +321,12 @@ function renderWater() {
   const avg = rows.map((r, i) => { const w = rows.slice(Math.max(0, i - n + 1), i + 1);
     return { x: t(r.date), y: w.reduce((a, x) => a + x[M], 0) / w.length, d: r.date }; }).filter(p => inRange(p.d));
   const shown = rows.filter(r => inRange(r.date));
-  const fmt = { hr: v => Math.round(v) + " bpm", rate: v => v.toFixed(1) + " spm", split: fmtSplit, meters: fmtM }[M];
+  const fmt = { hr: v => Math.round(v) + " bpm", rate: v => v.toFixed(1) + " spm", split: fmtSplit,
+    dps: v => v.toFixed(1) + " m", meters: fmtM }[M];
   chart(document.getElementById("water"), { invert: M === "split", yFmt: fmt, series: [
     { points: shown.map(r => ({ x: t(r.date), y: r[M],
       tip: `${fmtDate(r.date)} · ${r.name}<br><b>${fmtM(r.meters)} m</b> · ${fmtTime(r.seconds)} · ${fmtSplit(r.split)}` +
-        `${r.rate ? ` · r${r.rate}` : ""}${r.hr ? ` · ${r.hr} bpm` : ""}` })), color: css("--s2-soft"), dots: true, dotR: 3.5 },
+        `${r.rate ? ` · r${r.rate}` : ""}${r.dps ? ` · ${r.dps} m/stroke` : ""}${r.hr ? ` · ${r.hr} bpm` : ""}` })), color: css("--s2-soft"), dots: true, dotR: 3.5 },
     { points: avg, color: css("--s2"), line: true, width: 2.5, noHover: true }] });
   const s = DATA.summary;
   document.getElementById("waterSub").textContent = `${s.water_sessions} sessions from Garmin, ${fmtM(s.water_meters)} m. ` +
