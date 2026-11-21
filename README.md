@@ -26,10 +26,23 @@ To try it without a token: `python3 tools/make_sample.py && python3 build.py --d
 
 ## Run it on GitHub (daily refresh)
 
-1. Push this repo to GitHub.
-2. **Settings → Secrets and variables → Actions → New repository secret**: name `C2_TOKEN`, value your token.
-3. **Settings → Pages → Source: GitHub Actions**.
-4. **Actions → Update dashboard → Run workflow** for the first build. After that it runs every morning.
+Uses a Concept2 API key (client ID + secret, platform "Other",
+callback `http://localhost:8080/callback`, no webhook).
+
+1. **Repo secrets** (Settings → Secrets and variables → Actions):
+   - `C2_CLIENT_ID`, `C2_CLIENT_SECRET` — from the Concept2 API key
+   - `GH_PAT` — a fine-grained GitHub token, this repo only, permission **Secrets: Read and write**.
+     The workflows use it to save Concept2's rotating refresh token back into `C2_REFRESH_TOKEN`.
+2. **Approve access once**: open this in a browser (put in your client ID), approve, and copy the
+   `localhost:8080/callback?code=…` address you land on (the page itself won't load — that's fine):
+
+   `https://log.concept2.com/oauth/authorize?client_id=YOUR_CLIENT_ID&scope=user:read,results:read&response_type=code&redirect_uri=http://localhost:8080/callback`
+
+3. Within a few minutes: **Actions → Connect Concept2 → Run workflow**, paste that address.
+4. **Settings → Pages → Source: GitHub Actions**.
+5. **Actions → Update dashboard → Run workflow** for the first build. After that it runs every morning.
+
+If the daily run ever fails at "Refresh Concept2 token", redo steps 2–3.
 
 Workout data is never committed (data/ and site/ are git-ignored); it's fetched fresh on each run.
 **The Pages site itself is public**, though — anyone with the URL can see the dashboard. If that matters,

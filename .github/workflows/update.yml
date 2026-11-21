@@ -20,10 +20,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Concept2 hands out a new refresh token each time one is used, so it is
+      # saved back to the repo secret straight away, before anything else can fail.
+      - name: Refresh Concept2 token
+        env:
+          C2_CLIENT_ID: ${{ secrets.C2_CLIENT_ID }}
+          C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
+          C2_REFRESH_TOKEN: ${{ secrets.C2_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          OUT_DIR: ${{ runner.temp }}
+        run: |
+          python3 c2auth.py refresh
+          gh secret set C2_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < "$OUT_DIR/refresh_token"
+          rm -f "$OUT_DIR/refresh_token"
+
       - name: Pull Concept2 Logbook
         env:
-          C2_TOKEN: ${{ secrets.C2_TOKEN }}
-        run: python3 sync.py
+          OUT_DIR: ${{ runner.temp }}
+        run: |
+          C2_TOKEN="$(cat "$OUT_DIR/access_token")" python3 sync.py
+          rm -f "$OUT_DIR/access_token"
 
       - name: Build dashboard
         run: python3 build.py
