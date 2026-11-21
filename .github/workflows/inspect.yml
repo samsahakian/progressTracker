@@ -1,0 +1,31 @@
+name: Inspect session types (temporary)
+on: workflow_dispatch
+permissions:
+  contents: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          C2_CLIENT_ID: ${{ secrets.C2_CLIENT_ID }}
+          C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
+          OUT_DIR: ${{ runner.temp }}
+        run: |
+          C2_REFRESH_TOKEN="$(bash tools/token_state.sh load)"
+          echo "::add-mask::$C2_REFRESH_TOKEN"
+          C2_REFRESH_TOKEN="$C2_REFRESH_TOKEN" python3 c2auth.py refresh
+          bash tools/token_state.sh save "$OUT_DIR/refresh_token"
+          C2_TOKEN="$(cat "$OUT_DIR/access_token")" python3 sync.py
+          rm -f "$OUT_DIR"/access_token "$OUT_DIR"/refresh_token
+          python3 build.py | tail -1
+          python3 - <<'PY'
+          import json, re
+          d = json.loads(re.search(r'const DATA = (.*?);\n', open('site/index.html').read()).group(1))
+          for r in d['sessions']:
+              if r['kind'] == 'Erg':
+                  print("T", r['date'], r['type'], int(r['low']), r['name'], r['meters'], int(r['seconds']), r['split'], r['rate'], r['hr'])
+          PY
