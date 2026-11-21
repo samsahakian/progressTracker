@@ -149,7 +149,7 @@ def load_catchup(path):
 
 
 def load_water(path):
-    """On-water sessions from data/strava.json (written by strava.py), if present."""
+    """On-water sessions from data/water.json (written by garmin.py), if present."""
     if not path.exists():
         return []
     out = []
@@ -157,7 +157,7 @@ def load_water(path):
         if not a.get("meters") or not a.get("seconds"):
             continue
         split = a["seconds"] / a["meters"] * 500
-        out.append({"id": f"s{a['id']}", "date": a["date"][:10], "name": a.get("name", ""),
+        out.append({"id": f"g{a['id']}", "date": a["date"][:10], "name": a.get("name", ""),
                     "meters": a["meters"], "seconds": a["seconds"], "split": round(split, 1),
                     "hr": round(a["hr"]) if a.get("hr") else None,
                     "max_hr": round(a["max_hr"]) if a.get("max_hr") else None,
@@ -285,7 +285,7 @@ def main():
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config.json").read_text())
-    water = load_water(args.data.parent / "strava.json")
+    water = load_water(args.data.parent / "water.json")
     payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"), water)
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))

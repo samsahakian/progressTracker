@@ -46,43 +46,16 @@ callback `http://localhost:8080/callback`, no webhook).
 
 If the daily run ever fails at "Refresh Concept2 token", redo steps 2–3.
 
-## Add on-water sessions from Strava (optional)
+## Add on-water sessions from Garmin (optional)
 
-Pulls outdoor rowing activities (e.g. from a Garmin watch) and shows them alongside the erg:
-separate weekly bars, an on-water HR/rate/split chart, and a combined session log. Erg and water
-meters are kept separate, never summed; season meters stay erg-only, matching Concept2.
+Pulls outdoor rowing activities from Garmin Connect and shows them alongside the erg: separate
+weekly bars, an on-water HR/rate/split chart, and a combined session log. Erg and water meters are
+kept separate, never summed; season meters stay erg-only, matching Concept2.
 
-1. Create an API app at strava.com/settings/api (Authorization Callback Domain: `localhost`).
-2. Repo secrets: `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`.
-3. Approve access once (put in your client ID), then copy the `http://localhost/?…code=…` address you land on:
+1. Garmin Connect on the web → **Settings → Personal API Key → Create Key**. Pick the longest expiry
+   (up to a year). It's shown once, so copy it straight away.
+2. Repo secret `GARMIN_API_KEY` = that key.
+3. **Actions → Update dashboard → Run workflow.**
 
-   `https://www.strava.com/oauth/authorize?client_id=YOUR_CLIENT_ID&response_type=code&redirect_uri=http://localhost&approval_prompt=force&scope=activity:read_all`
-
-4. Within a few minutes: **Actions → Connect Strava → Run workflow**, paste that address.
-5. **Actions → Update dashboard → Run workflow.**
-
-Indoor sessions in Strava (no GPS, or marked trainer/virtual) are skipped, so erg pieces aren't counted twice.
-If Strava has a problem, the daily run still builds the erg dashboard and shows a warning.
-
-Workout data is never committed (data/ and site/ are git-ignored); it's fetched fresh on each run.
-**The Pages site itself is public**, though — anyone with the URL can see the dashboard. If that matters,
-skip Pages and run it locally instead.
-
-## Tuning what counts as a benchmark
-
-Rules live in `config.json`. A piece matches when it's a single continuous piece of the right distance or
-time (±5 s), within the rate limits, and — for 30r20 — at least 12% more watts than your median easy piece
-over the prior 60 days, so 30-minute UT2 rows don't get counted.
-
-Override per workout with a Logbook comment:
-
-- `#30r20`, `#2k`, etc. — force a piece into that benchmark (works for interval-programmed pieces too)
-- `#notest` — keep a piece out of every benchmark (e.g. a 2k warmup)
-
-Add your own benchmark by appending a rule, e.g. `{ "id": "60min", "label": "60 min", "minutes": 60, "min_effort": 1.05 }`.
-
-## How the numbers are derived
-
-- Split = time ÷ meters × 500
-- Watts = 2.80 ÷ (split ÷ 500)³ — Concept2's formula
-- W/HR = watts ÷ average heart rate (only when the Logbook has HR for that piece)
+Indoor rowing activities are skipped, so erg pieces aren't counted twice. When the key expires the
+daily run still builds the erg dashboard and shows a warning; make a new key and update the secret.

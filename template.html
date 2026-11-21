@@ -328,7 +328,7 @@ function renderWater() {
         `${r.rate ? ` · r${r.rate}` : ""}${r.hr ? ` · ${r.hr} bpm` : ""}` })), color: css("--s2-soft"), dots: true, dotR: 3.5 },
     { points: avg, color: css("--s2"), line: true, width: 2.5, noHover: true }] });
   const s = DATA.summary;
-  document.getElementById("waterSub").textContent = `${s.water_sessions} sessions from Strava, ${fmtM(s.water_meters)} m. ` +
+  document.getElementById("waterSub").textContent = `${s.water_sessions} sessions from Garmin, ${fmtM(s.water_meters)} m. ` +
     "Whole-session averages, so warm-ups and paddling are included; split depends on wind and current, so HR and rate trend best.";
 }
 
@@ -452,7 +452,7 @@ pick.innerHTML = DATA.benchmarks.map(b => `<option value="${b.id}">${b.label} ($
 pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
 
 document.getElementById("meta").textContent = DATA.summary.last
-  ? `${fmtDate(DATA.summary.first)} – ${fmtDate(DATA.summary.last)} · Concept2 Logbook${DATA.water.length ? " + Strava" : ""}` : "No workouts yet.";
+  ? `${fmtDate(DATA.summary.first)} – ${fmtDate(DATA.summary.last)} · Concept2 Logbook${DATA.water.length ? " + Garmin" : ""}` : "No workouts yet.";
 document.getElementById("foot").textContent = `Built ${DATA.generated}. Watts from split using Concept2's formula; W/HR uses average heart rate.`;
 renderAll();
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderAll, 150); });
