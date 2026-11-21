@@ -18,6 +18,8 @@ TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 SEARCH_PATH = "/activitylist-service/activities/search/activities"
 OUT = Path(__file__).parent / "data" / "water.json"
 ACT_OUT = Path(__file__).parent / "data" / "garmin_activities.json"
+INDOOR_OUT = Path(__file__).parent / "data" / "garmin_indoor.json"
+RESULTS = Path(__file__).parent / "data" / "results.json"
 DAILY_OUT = Path(__file__).parent / "data" / "garmin_daily.json"
 DAILY_DAYS = 400  # history for resting HR, sleep and HRV
 FIT_DIR = Path(__file__).parent / "data" / "fit"  # cached [[t, m, hr], ...] per on-water session
@@ -88,7 +90,7 @@ def main():
     token = get_token(key)
     headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
 
-    rows, types, start, shown_fields, acts = [], {}, 0, False, []
+    rows, types, start, shown_fields, acts, indoor = [], {}, 0, False, [], []
     while True:
         batch = json.loads(call("GET", SEARCH_PATH, headers, {"start": start, "limit": PAGE}) or "[]")
         if isinstance(batch, dict):  # tolerate a wrapped list
@@ -97,6 +99,16 @@ def main():
             types[type_key(a)] = types.get(type_key(a), 0) + 1
             acts.append({"date": (a.get("startTimeLocal") or "")[:10], "type": type_key(a),
                          "load": a.get("activityTrainingLoad"), "minutes": round((a.get("duration") or 0) / 60, 1)})
+            if "indoor_row" in type_key(a).lower():
+                indoor.append({
+                    "id": a.get("activityId"), "start": (a.get("startTimeLocal") or "")[:19],
+                    "date": (a.get("startTimeLocal") or "")[:10], "name": a.get("activityName") or "",
+                    "elapsed": round(pick(a, "elapsedDuration", "duration") or 0),
+                    "seconds": round(pick(a, "movingDuration", "duration") or 0),
+                    "meters": round(a.get("distance") or 0),
+                    "hr": pick(a, "averageHR", "averageHeartRate"), "max_hr": pick(a, "maxHR", "maxHeartRate"),
+                    "rate": stroke_rate(a), "load": a.get("activityTrainingLoad"),
+                })
             if not is_on_water(a):
                 continue
             if not shown_fields:  # field names only, no values: helps adapt if Garmin renames things
@@ -129,10 +141,19 @@ def main():
     OUT.write_text(json.dumps(rows, indent=1))
     print(f"Saved {len(rows)} on-water sessions to {OUT}")
     acts.sort(key=lambda a: a["date"])
+    indoor.sort(key=lambda a: a["start"])
+    INDOOR_OUT.write_text(json.dumps(indoor))
+    garmin_only = indoor
+    if RESULTS.exists():
+        import dedupe
+        matched, how = dedupe.match(indoor, json.loads(RESULTS.read_text()))
+        garmin_only = [g for g in indoor if not matched[g["id"]]]
+        print(f"Garmin indoor rowing: {len(indoor)} sessions, {len(indoor) - len(garmin_only)} match a Logbook session "
+              f"(by start {how['start']}, by finish {how['end']}), {len(garmin_only)} Garmin-only")
     ACT_OUT.write_text(json.dumps(acts))
     print(f"Saved {len(acts)} activities (date, type, training load) to {ACT_OUT}")
     try:
-        fit_tracks(rows, headers)
+        fit_tracks(garmin_only + rows, headers)  # Garmin-only indoor first (coach priority), then on-water
     except (Exception, SystemExit) as e:  # optional; never lose the rowing or daily data over it
         print(f"::warning::Garmin FIT download skipped: {e}")
     try:
