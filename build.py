@@ -105,30 +105,44 @@ TAGS = [("#steady", "steady"), ("#threshold", "threshold"), ("#race", "race_pace
 def classify(w, rules):
     """Coach's session types for an erg result -> (type, source, low_confidence).
 
-    Logbook distance/time for interval workouts are work-only, so the split is the work split.
+    HR-first for continuous pieces (steady pace drifts with fitness; HR describes effort).
+    Order: test -> steady -> threshold -> race_pace -> other. Logbook distance/time for
+    interval workouts are work-only, so the split is the work split.
     """
     for tag, typ in TAGS:
         if tag in w["comments"]:
             return typ, "tag", False
-    sp, mins, hr = w["split"], w["seconds"] / 60, w["hr"]
+    sp, mins = w["split"], w["seconds"] / 60
+    hr = w["hr"] if w["hr"] and w["hr"] >= rules.get("min_valid_hr", 100) else None
     test_max, race_max = secs(rules["test_max_split"]), secs(rules["race_max_split"])
     steady_min = secs(rules["steady_min_split"])
     near = lambda edge: abs(sp - edge) < rules.get("low_confidence_seconds", 1.0)
     standard = (w["meters"] in rules["test_distances"]
                 or any(abs(w["seconds"] - m * 60) <= 5 for m in rules["test_minutes"]))
-    if not is_single_piece(w):
+
+    if not is_single_piece(w):  # intervals: by work split
         if sp <= race_max:
             return "race_pace", "inferred", near(race_max)
         if sp < steady_min:
             return "threshold", "inferred", near(race_max) or near(steady_min)
         return "other", "inferred", near(steady_min)
-    if standard and sp <= test_max:
+
+    if standard and sp <= test_max:  # tests first, so a low strap reading can't make a test "steady"
         return "test", "inferred", near(test_max)
-    if mins >= rules["steady_min_minutes"] and sp >= steady_min and (hr is None or hr <= rules["steady_max_hr"]):
-        return "steady", "inferred", hr is None or near(steady_min)
+    if mins >= rules["steady_min_minutes"]:
+        if hr is not None:
+            if hr <= rules["steady_hr_max"]:
+                return "steady", "inferred", False
+            if sp >= steady_min and hr <= rules["steady_max_hr"]:  # slow piece, HR in Z3: original steady rule
+                return "steady", "inferred", near(steady_min)
+        elif sp >= steady_min:  # no usable HR: pace rule, low confidence
+            return "steady", "inferred", True
     if mins >= rules["threshold_min_minutes"] and race_max < sp < steady_min:
-        return "threshold", "inferred", near(steady_min) or near(race_max)
-    return "other", "inferred", False
+        if hr is None:
+            return "threshold", "inferred", True
+        if hr >= rules["threshold_min_hr"]:
+            return "threshold", "inferred", near(steady_min) or near(race_max)
+    return "other", "inferred", hr is None
 
 
 def is_single_piece(w):

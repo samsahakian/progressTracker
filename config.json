@@ -137,7 +137,7 @@
     }
   ],
   "session_types": {
-    "_help": "Coach's rules for typing erg sessions. A Logbook comment tag (#steady #threshold #race #test #other) always wins. Splits are /500m over work intervals only.",
+    "_help": "Coach's rules for typing erg sessions, HR-first for continuous pieces. Order: test -> steady -> threshold -> race_pace -> other. A Logbook comment tag (#steady #threshold #race #test #other) always wins. Splits are /500m over work intervals only. HR below min_valid_hr counts as missing: pace rules apply and the type is marked low-confidence.",
     "test_max_split": "2:02",
     "test_distances": [
       2000,
@@ -153,6 +153,9 @@
     "steady_max_hr": 158,
     "steady_min_minutes": 20,
     "threshold_min_minutes": 15,
-    "low_confidence_seconds": 1.0
+    "low_confidence_seconds": 1.0,
+    "steady_hr_max": 149,
+    "threshold_min_hr": 150,
+    "min_valid_hr": 100
   }
 }
