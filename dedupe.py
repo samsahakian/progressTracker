@@ -35,7 +35,7 @@ def match(indoor, results):
     by_day = {}
     for lid, start, dur in logs:
         by_day.setdefault(start.date(), []).append((lid, start, dur))
-    out, how = {}, {"start": 0, "end": 0}
+    out, how, kind_of = {}, {"start": 0, "end": 0}, {}
     for g in indoor:
         gs, gdur = _dt(g.get("start") or ""), g.get("elapsed") or g.get("seconds") or 0
         found = None
@@ -52,5 +52,7 @@ def match(indoor, results):
                     break
             if found:
                 how[kind] += 1
+                kind_of[found] = kind
         out[g["id"]] = found
+    match.kind_of = kind_of  # Logbook id -> "start" | "end", for sessions with a Garmin twin
     return out, how

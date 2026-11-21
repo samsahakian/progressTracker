@@ -31,7 +31,7 @@
     },
     {
       "id": "30min",
-      "label": "30 min test",
+      "label": "30 min",
       "minutes": 30,
       "min_rate": 22
     }
@@ -108,7 +108,7 @@
       5,
       35
     ],
-    "drift_min_minutes": 30,
+    "drift_min_minutes": 45,
     "drift_flag_pct": 5,
     "easy_target_pct": 80,
     "z3_flag_pct": 15,
@@ -117,7 +117,17 @@
       37
     ],
     "rhr_flag_bpm": 4,
-    "rhr_flag_days": 3
+    "rhr_flag_days": 3,
+    "drift_window_min": [
+      5,
+      45
+    ],
+    "hard_sessions_target": 2,
+    "garmin_hard_min": 8,
+    "garmin_hard_hr": 150,
+    "short_piece_min": 5,
+    "steady_reference_split": "2:09",
+    "threshold_reference_split": "1:58"
   },
   "goals": [
     {
@@ -174,6 +184,14 @@
     "low_confidence_seconds": 1.0,
     "steady_hr_max": 149,
     "threshold_min_hr": 150,
-    "min_valid_hr": 100
+    "min_valid_hr": 100,
+    "interval_steady_min_minutes": 20,
+    "title_keywords": {
+      "hard": "hard",
+      "steady": "steady",
+      "threshold": "threshold",
+      "race": "race_pace",
+      "test": "test"
+    }
   }
 }

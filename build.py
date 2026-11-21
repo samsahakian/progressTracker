@@ -4,6 +4,7 @@
 Standard library only. Benchmark rules live in config.json.
 """
 import argparse
+import re
 import hashlib
 import csv
 import json
@@ -53,6 +54,8 @@ def parse(r):
         "comments": (r.get("comments") or "").lower(),
         "splits": parse_splits(r),
         "intervals": parse_intervals(r),
+        "start": (r.get("date") or "")[:16],
+        "rest_s": sum((iv.get("rest_time") or 0) / 10 for iv in ((r.get("workout") or {}).get("intervals") or [])),
     }
 
 
@@ -89,7 +92,7 @@ def workout_format(w):
         return fmt_dist(w["meters"])
     if wt == "FixedTimeSplits" or abs(w["seconds"] - round(w["seconds"] / 60) * 60) <= 2:
         return f"{round(w['seconds'] / 60)} min"
-    return f"Continuous ~{max(5, round(w['seconds'] / 300) * 5)} min"
+    return f"{max(5, round(w['seconds'] / 300) * 5)} min"  # merged with exact "N min" (coach G17)
 
 
 def parse_splits(r):
@@ -140,7 +143,7 @@ def secs(mmss):
 TAGS = [("#steady", "steady"), ("#threshold", "threshold"), ("#race", "race_pace"), ("#test", "test"), ("#other", "other")]
 
 
-def classify(w, rules):
+def classify(w, rules, interval_hr_first=True):
     """Coach's session types for an erg result -> (type, source, low_confidence).
 
     HR-first for continuous pieces (steady pace drifts with fitness; HR describes effort).
@@ -151,14 +154,18 @@ def classify(w, rules):
         if tag in w["comments"]:
             return typ, "tag", False
     sp, mins = w["split"], w["seconds"] / 60
-    hr = w["hr"] if w["hr"] and w["hr"] >= rules.get("min_valid_hr", 100) else None
+    work_hr = (w.get("sm") or {}).get("avg_hr") or w["hr"]  # stroke HR covers work only
+    hr = work_hr if work_hr and work_hr >= rules.get("min_valid_hr", 100) else None
     test_max, race_max = secs(rules["test_max_split"]), secs(rules["race_max_split"])
     steady_min = secs(rules["steady_min_split"])
     near = lambda edge: abs(sp - edge) < rules.get("low_confidence_seconds", 1.0)
     standard = (w["meters"] in rules["test_distances"]
                 or any(abs(w["seconds"] - m * 60) <= 5 for m in rules["test_minutes"]))
 
-    if not is_single_piece(w):  # intervals: by work split
+    if not is_single_piece(w):  # intervals: HR-first, then work split
+        if (interval_hr_first and hr is not None and hr <= rules["steady_hr_max"]
+                and mins >= rules.get("interval_steady_min_minutes", 20)):
+            return "steady", "inferred", False
         if sp <= race_max:
             return "race_pace", "inferred", near(race_max)
         if sp < steady_min:
@@ -239,17 +246,35 @@ def stroke_metrics(strokes, ath, min_valid):
         else:
             nohr += dt
     out = {"zones": {k: round(v) for k, v in zsec.items()}, "nohr": round(nohr)}
+    timed = sum(zsec.values())
+    if timed >= 0.8 * (timed + nohr) and timed > 0:
+        hr_sum = 0.0
+        for a, b in zip(strokes, strokes[1:]):
+            dt = b[0] - a[0]
+            if 0 < dt < 30 and b[2] >= min_valid:
+                hr_sum += b[2] * dt
+        out["avg_hr"] = round(hr_sum / timed, 1)
+    out["z3plus_s"] = round(sum(v for z, v in zsec.items() if z not in set(ath.get("easy_zones", ["Z1", "Z2"]))))
     end = strokes[-1][0] if strokes else 0
     w0, w1 = (m * 60 for m in ath.get("efficiency_window_min", [5, 35]))
     if end >= w1 - 5:
         out["win"] = window(strokes, w0, w1, min_valid)
-    if end >= ath.get("drift_min_minutes", 30) * 60:
-        mid = (w0 + end) / 2  # skip the first minutes, then compare halves
-        h1, h2 = window(strokes, w0, mid, min_valid), window(strokes, mid, end, min_valid)
-        if h1 and h2:
-            ef1, ef2 = h1["speed"] / h1["hr"], h2["speed"] / h2["hr"]
-            out["drift"] = round((ef1 - ef2) / ef1 * 100, 2)
-            out["halves"] = [[round(h1["split"], 1), round(h1["hr"])], [round(h2["split"], 1), round(h2["hr"])]]
+
+    def drift_between(a0, a1, a2):
+        h1, h2 = window(strokes, a0, a1, min_valid), window(strokes, a1, a2, min_valid)
+        if not (h1 and h2):
+            return None, None
+        ef1, ef2 = h1["speed"] / h1["hr"], h2["speed"] / h2["hr"]
+        return round((ef1 - ef2) / ef1 * 100, 2), [[round(h1["split"], 1), round(h1["hr"])], [round(h2["split"], 1), round(h2["hr"])]]
+
+    d0, d1 = (m * 60 for m in ath.get("drift_window_min", [5, 45]))
+    if end >= d1 - 5:  # fixed window, so short and long pieces compare fairly (coach E13)
+        out["drift"], out["halves"] = drift_between(d0, (d0 + d1) / 2, min(d1, end))
+        if out["drift"] is None:
+            del out["drift"], out["halves"]
+        whole, _ = drift_between(d0, (d0 + end) / 2, end)  # whole-piece drift, for the tooltip
+        if whole is not None:
+            out["drift_whole"] = whole
     return out
 
 
@@ -291,6 +316,14 @@ def matches(w, b, baseline=None):
     return True
 
 
+def tod_bucket(hhmm):
+    """Coach I19: early (< 8:00), midday (8:00-16:00), evening (>= 16:00)."""
+    if not hhmm or ":" not in hhmm:
+        return None
+    h = int(hhmm[:2])
+    return "early" if h < 8 else "midday" if h < 16 else "evening"
+
+
 def season_of(d, start_month):
     """Concept2 seasons run May 1 - Apr 30 and are named for the ending year."""
     return d.year + 1 if d.month >= start_month else d.year
@@ -308,7 +341,7 @@ def load_catchup(path):
     return out
 
 
-def load_water(path):
+def load_water(path):  # noqa: E302
     """On-water sessions from data/water.json (written by garmin.py), if present."""
     if not path.exists():
         return []
@@ -317,7 +350,7 @@ def load_water(path):
         if not a.get("meters") or not a.get("seconds"):
             continue
         split = a["seconds"] / a["meters"] * 500
-        out.append({"id": f"g{a['id']}", "date": a["date"][:10], "name": a.get("name", ""),
+        out.append({"id": f"g{a['id']}", "date": a["date"][:10], "start_t": a["date"][11:16], "name": a.get("name", ""),
                     "meters": a["meters"], "seconds": a["seconds"], "split": round(split, 1),
                     "hr": round(a["hr"]) if a.get("hr") else None,
                     "max_hr": round(a["max_hr"]) if a.get("max_hr") else None,
@@ -362,17 +395,11 @@ def recovery_series(daily, acts, ath):
     return out, [{"week": w, "load": round(load[w]), "lifts": lifts[w]} for w in weeks]
 
 
-def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_daily=None, garmin_acts=()):
+def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_daily=None, garmin_acts=(), garmin_indoor=()):
     everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
     everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
     rules = cfg.get("session_types")
-    for w in workouts:
-        w["stype"], w["stype_src"], w["stype_low"] = classify(w, rules) if rules else ("other", "inferred", False)
-    type_counts = defaultdict(int)
-    for w in workouts:
-        type_counts[w["stype"]] += 1
-
     # Per-stroke metrics (time in zone, efficiency window, drift) where stroke data is cached.
     ath = cfg.get("athlete", {})
     min_valid = (rules or {}).get("min_valid_hr", 100)
@@ -381,6 +408,13 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         st = load_strokes(strokes_dir / f"{w['id']}.json") if strokes_dir else None
         w["sm"] = stroke_metrics(st, ath, min_valid) if st and ath.get("zones") else None
         with_strokes += bool(w["sm"])
+
+    type_counts, type_counts_before = defaultdict(int), defaultdict(int)
+    for w in workouts:
+        w["stype"], w["stype_src"], w["stype_low"] = classify(w, rules) if rules else ("other", "inferred", False)
+        type_counts[w["stype"]] += 1
+        if rules:
+            type_counts_before[classify(w, rules, interval_hr_first=False)[0]] += 1
 
     # Weekly intensity distribution (erg, from strokes)
     easy_z, mod_z = set(ath.get("easy_zones", ["Z1", "Z2"])), set(ath.get("moderate_zones", ["Z3"]))
@@ -418,15 +452,123 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             x["zones"][z] += secs_
             x["water_s"] = x.get("water_s", 0) + secs_
             x["easy" if z in easy_z else "moderate" if z in mod_z else "hard"] += secs_
+    # Title overrides for Garmin sessions (coach A3)
+    kw = (rules or {}).get("title_keywords", {})
+
+    def title_type(name):
+        n = (name or "").lower()
+        return next((t for k, t in kw.items() if re.search(rf"\b{re.escape(k)}\b", n)), None)
+
+    for w in water:
+        w["type"] = title_type(w.get("name")) or "water"
+
+    # Garmin-only indoor rowing: club practices never logged to Concept2 (coach B4-B7).
+    # Time and HR only: their meters never count toward goals or totals.
+    indoor_only, dedupe_counts = [], None
+    if garmin_indoor:
+        import dedupe
+        matched, how = dedupe.match(garmin_indoor, results)
+        dedupe_counts = {"garmin_indoor": len(garmin_indoor), "matched": sum(1 for v in matched.values() if v),
+                         "garmin_only": sum(1 for v in matched.values() if not v), **{f"by_{k}": v for k, v in how.items()}}
+        hard_min, hard_hr = ath.get("garmin_hard_min", 8), ath.get("garmin_hard_hr", 150)
+        for g in garmin_indoor:
+            if matched[g["id"]]:
+                continue
+            p = fit_dir / f"{g['id']}.json" if fit_dir else None
+            tr = json.loads(p.read_text()) if p and p.exists() else []
+            sm = stroke_metrics([tuple(x) for x in tr], {**ath, "efficiency_window_min": [10**5, 10**5]}, min_valid) if tr else None
+            if sm and not sm["zones"]:
+                sm = None
+            tt = title_type(g["name"])
+            if tt:
+                typ, src, low = tt, "title", False
+            else:
+                src, low = "inferred", True
+                avg = (sm or {}).get("avg_hr") or g.get("hr")
+                z3 = sum(v for z, v in (sm or {}).get("zones", {}).items() if z not in easy_z) if sm else None
+                if z3 is not None and z3 >= hard_min * 60:
+                    typ = "hard"
+                elif avg and avg < hard_hr:
+                    typ = "steady"
+                else:
+                    typ = "other"
+            indoor_only.append({**g, "type": typ, "type_src": src, "low": low, "sm": sm})
+            if sm:
+                d = date.fromisoformat(g["date"])
+                x = wk[(d - timedelta(days=d.weekday())).isoformat()]
+                x["indoor_sessions"] = x.get("indoor_sessions", 0) + 1
+                x["nohr"] += sm["nohr"]
+                for z, secs_ in sm["zones"].items():
+                    x["zones"][z] += secs_
+                    x["indoor_s"] = x.get("indoor_s", 0) + secs_
+                    x["easy" if z in easy_z else "moderate" if z in mod_z else "hard"] += secs_
     intensity = [{"week": k, **{kk: (dict(vv) if kk == "zones" else vv) for kk, vv in v.items()}} for k, v in sorted(wk.items())]
+
+    # Local start time for every erg session: the Logbook time is usually the finish time (coach I19 needs starts).
+    kind_of = dedupe.match.kind_of if garmin_indoor else {}
+    for w in workouts:
+        try:
+            t = datetime.fromisoformat(w["start"])
+        except ValueError:
+            w["start_t"] = None
+        else:
+            if kind_of.get(w["id"]) != "start":
+                t -= timedelta(seconds=w["seconds"] + w.get("rest_s", 0))
+            w["start_t"] = t.strftime("%H:%M")
+        w["tod"] = tod_bucket(w["start_t"])
+    for w in water:
+        w["tod"] = tod_bucket(w.get("start_t"))
+    for g in indoor_only:
+        g["start_t"] = (g.get("start") or "")[11:16]
+        g["tod"] = tod_bucket(g["start_t"])
+
+    # Hard sessions and training time per week, all sources (coach C8, D10)
+    HARD = {"threshold", "race_pace", "test", "hard"}
+    hard_w = defaultdict(lambda: {"erg": 0, "water": 0, "indoor": 0})
+    time_w = defaultdict(lambda: {"erg": 0, "water": 0, "indoor": 0})
+    monday = lambda ds: (date.fromisoformat(ds) - timedelta(days=date.fromisoformat(ds).weekday())).isoformat()
+    for w in workouts:
+        time_w[monday(w["date"])]["erg"] += w["seconds"] + w.get("rest_s", 0)
+        hard_w[monday(w["date"])]["erg"] += w["stype"] in HARD
+    for w in water:
+        time_w[monday(w["date"])]["water"] += w["seconds"]
+        hard_w[monday(w["date"])]["water"] += w["type"] in HARD
+    for g in indoor_only:
+        time_w[monday(g["date"])]["indoor"] += g["elapsed"] or g["seconds"]
+        hard_w[monday(g["date"])]["indoor"] += g["type"] in HARD
+    load_time = [{"week": k, **{kk: round(vv / 60) for kk, vv in v.items()}} for k, v in sorted(time_w.items())]
+    hard_weeks = [{"week": k, **v, "n": sum(v.values())} for k, v in sorted(hard_w.items())]
 
     # Aerobic efficiency (steady only, fixed window) and drift (steady, long enough)
     efficiency = [{"date": w["date"], "minutes": round(w["seconds"] / 60), "split": round(w["sm"]["win"]["split"], 1),
-                   "hr": round(w["sm"]["win"]["hr"], 1), "rate": w["rate"]}
+                   "hr": round(w["sm"]["win"]["hr"], 1), "rate": w["rate"], "tod": w["tod"], "start": w["start_t"],
+                   "w_hr": round(watts_from_split(w["sm"]["win"]["split"]) / w["sm"]["win"]["hr"], 3)}
                   for w in workouts if w["stype"] == "steady" and w["sm"] and w["sm"].get("win")]
     drift = [{"date": w["date"], "minutes": round(w["seconds"] / 60), "drift": w["sm"]["drift"], "halves": w["sm"]["halves"],
-              "split": w["split"], "hr": w["hr"]}
+              "whole": w["sm"].get("drift_whole"), "split": w["split"], "hr": w["hr"], "src": "Erg", "tod": w["tod"], "start": w["start_t"]}
              for w in workouts if w["stype"] == "steady" and w["sm"] and "drift" in w["sm"]]
+    for g in indoor_only:
+        if g["type"] == "steady" and g["sm"] and "drift" in g["sm"]:
+            drift.append({"date": g["date"], "minutes": round((g["elapsed"] or g["seconds"]) / 60), "drift": g["sm"]["drift"],
+                          "halves": g["sm"]["halves"], "whole": g["sm"].get("drift_whole"), "split": None, "hr": g.get("hr"),
+                          "src": "Garmin indoor", "tod": g["tod"], "start": g["start_t"]})
+    drift.sort(key=lambda r: r["date"])
+    def quarter(ds):
+        return f"{ds[:4]}-Q{(int(ds[5:7]) - 1) // 3 + 1}"
+    hb = ath.get("efficiency_hr_band", [142, 149])
+    tod_report = []
+    for q in sorted({quarter(r["date"]) for r in efficiency}):
+        rows = [r for r in efficiency if quarter(r["date"]) == q]
+        counts = {b: sum(r["tod"] == b for r in rows) for b in ("early", "midday", "evening")}
+        def med(vals):
+            vals = sorted(vals)
+            return vals[len(vals) // 2] if vals else None
+        pace = {b: med([r["split"] for r in rows if r["tod"] == b and hb[0] <= r["hr"] <= hb[1] + 0.99]) for b in ("early", "evening")}
+        whr = {b: med([r["w_hr"] for r in rows if r["tod"] == b]) for b in ("early", "evening")}
+        tod_report.append({"quarter": q, "counts": counts,
+                           "pace_diff": round(pace["early"] - pace["evening"], 1) if None not in pace.values() else None,
+                           "whr_diff": round(whr["early"] - whr["evening"], 3) if None not in whr.values() else None,
+                           "pace_n": [sum(r["tod"] == b and hb[0] <= r["hr"] <= hb[1] + 0.99 for r in rows) for b in ("early", "evening")]})
     catchup = [w for w in everything if w.get("volume_only")]
 
     # --- Benchmarks (first matching rule wins, so 30r20 beats the 30-min test) ---
@@ -463,7 +605,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             pb = run_best is None or w["split"] < run_best
             run_best = w["split"] if pb else run_best
             rest = [iv[2] for iv in w["intervals"]]
-            marked.append({**w, "pb": pb, "rest": round(sum(rest) / len(rest)) if rest else None})
+            marked.append({**w, "pb": pb, "rest": round(sum(rest) / len(rest)) if rest else None, "start": w.get("start_t")})
         types = defaultdict(int)
         for w in rows:
             types[w["stype"]] += 1
@@ -561,6 +703,11 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         "drift": drift,
         "strokes_coverage": [with_strokes, len(workouts)],
         "water_hr_coverage": [water_with_hr, len(water)],
+        "hard_weeks": hard_weeks,
+        "tod_report": tod_report,
+        "time_weeks": load_time,
+        "dedupe": dedupe_counts,
+        "indoor_counts": {t: sum(g["type"] == t for g in indoor_only) for t in ("hard", "steady", "other", "threshold", "race_pace", "test")},
         "events": cfg.get("events", []),
         "athlete": cfg.get("athlete", {}),
         "summary": {
@@ -569,6 +716,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             "catchup_entries": len(catchup),
             "catchup_meters": sum(w["meters"] for w in catchup),
             "types": dict(type_counts),
+            "types_before": dict(type_counts_before),
             "types_tagged": sum(w["stype_src"] == "tag" for w in workouts),
             "types_low": sum(w["stype_low"] for w in workouts),
             "water_sessions": len(water),
@@ -582,10 +730,19 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         "sessions": sorted(
             [{"kind": "Erg", "date": w["date"], "name": w["workout_type"], "meters": w["meters"],
               "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"],
-              "type": w["stype"], "type_src": w["stype_src"], "low": w["stype_low"]} for w in workouts] +
+              "type": w["stype"], "type_src": w["stype_src"], "low": w["stype_low"],
+              "short": w["seconds"] + w.get("rest_s", 0) < ath.get("short_piece_min", 5) * 60,
+              "tod": w["tod"], "start": w["start_t"]} for w in workouts] +
             [{"kind": "Water", "date": w["date"], "name": w["name"], "meters": w["meters"],
               "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"],
-              "type": "water", "type_src": "", "low": False} for w in water],
+              "type": w["type"], "type_src": "title" if w["type"] != "water" else "", "low": False,
+              "short": w["seconds"] < ath.get("short_piece_min", 5) * 60, "tod": w["tod"], "start": w.get("start_t")} for w in water] +
+            [{"kind": "Indoor (Garmin)", "date": g["date"], "name": g["name"], "meters": None,
+              "seconds": g["elapsed"] or g["seconds"], "split": None, "rate": g.get("rate"),
+              "hr": (g["sm"] or {}).get("avg_hr") or g.get("hr"), "type": g["type"], "type_src": g["type_src"],
+              "low": g["low"], "short": (g["elapsed"] or g["seconds"]) < ath.get("short_piece_min", 5) * 60,
+              "tod": g["tod"], "start": g["start_t"]}
+             for g in indoor_only],
             key=lambda r: r["date"]),
         "seasons": season_lines[-4:],  # last four seasons keeps the chart readable
         "benchmarks": [{**g, "rows": [strip(w) for w in g["rows"]]} for g in format_groups],
@@ -607,7 +764,8 @@ def main():
     payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"), water,
                     args.data.parent / "strokes",
                     json.loads(gd.read_text()) if gd.exists() else {},
-                    json.loads(ga.read_text()) if ga.exists() else [])
+                    json.loads(ga.read_text()) if ga.exists() else [],
+                    json.loads(gi.read_text()) if (gi := args.data.parent / "garmin_indoor.json").exists() else [])
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
@@ -641,6 +799,11 @@ def main():
         print(f"Recovery: {len(rec)} days; latest {tail['date']} rhr {tail['rhr']} (7d {tail['rhr7']}, baseline {tail['base']}), "
               f"sleep7 {tail['sleep7']} h, hrv {tail['hrv']}; high-RHR streak {streak}; load weeks {len(payload['load_weeks'])}")
     print("Benchmark formats:", ", ".join(f"{g['label']} ({len(g['rows'])})" for g in payload["benchmarks"]))
+    print("Time of day (steady sessions in the efficiency window, early/midday/evening; early-minus-evening median pace at HR s, W/HR):")
+    for r in payload["tod_report"]:
+        print(f"  {r['quarter']}: {r['counts']} pace diff {r['pace_diff']} (n {r['pace_n']}), W/HR diff {r['whr_diff']}")
+    print(f"Garmin indoor dedupe: {payload['dedupe']}; Garmin-only types: {payload['indoor_counts']}")
+    print(f"Session types before interval HR-first: {s['types_before']}")
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
           f"low-confidence {s['types_low']}")
 

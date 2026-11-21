@@ -60,6 +60,9 @@ h2 { font-size: 17px; margin: 0 0 2px; }
 .flags li.warn { border-left-color: var(--s4); }
 .flags li.good { border-left-color: var(--s3); }
 .flags li b { font-weight: 600; }
+label.check { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 8px; cursor: pointer; }
+details.report { margin-top: 12px; font-size: 13px; }
+details.report summary { cursor: pointer; color: var(--text-2); }
 h3.mini { font-size: 13px; font-weight: 600; margin: 14px 0 2px; }
 h3.mini span { color: var(--text-3); font-weight: 400; margin-left: 6px; }
 h3.totals { font-size: 13px; color: var(--text-3); font-weight: 500; margin: 18px 0 8px; }
@@ -84,7 +87,6 @@ th { color: var(--text-3); font-weight: 500; }
 .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
-#ssWin { max-width: 100%; overflow-x: auto; }
 @media (max-width: 480px) { .seg button { padding: 6px 8px; } .tile .v { font-size: 20px; } .tile.na .v { font-size: 16px; } }
 </style>
 </head>
@@ -112,10 +114,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   <section class="card">
     <div class="row">
       <div><h2>Aerobic efficiency</h2><p class="sub" id="effSub"></p></div>
-      <div class="seg" id="effMode"><button data-v="pace" aria-pressed="true">Pace at HR</button><button data-v="hr">HR at pace</button></div>
+      <div class="seg" id="effMode"><button data-v="pace" aria-pressed="true">Pace at HR</button><button data-v="hr">HR at pace</button><button data-v="whr">W/HR</button></div>
     </div>
+    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day</label>
     <div class="chart" id="eff"></div>
     <div class="legend" id="effLegend"></div>
+    <details id="todReport" class="report"></details>
   </section>
 
   <section class="card">
@@ -123,11 +127,14 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <p class="sub" id="intSub"></p>
     <div class="chart" id="int"></div>
     <div class="legend" id="intLegend"></div>
+    <h3 class="mini">Hard sessions per week <span id="hardNote"></span></h3>
+    <div class="chart" id="hard"></div>
   </section>
 
   <section class="card">
     <h2>HR drift</h2>
     <p class="sub" id="driftSub"></p>
+    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day</label>
     <div class="chart" id="drift"></div>
     <div class="legend" id="driftLegend"></div>
   </section>
@@ -163,6 +170,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <p class="sub" id="weeklySub">Every rower session, summed Monday–Sunday.</p>
     <div class="chart" id="weekly"></div>
     <div class="legend" id="weeklyLegend"></div>
+    <h3 class="mini">Training time per week <span>all sources</span></h3>
+    <div class="chart" id="time"></div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Erg (incl. rest)</span><span><i style="background:var(--s2)"></i>Water (moving)</span><span><i style="background:var(--s3)"></i>Indoor, Garmin only</span></div>
   </section>
 
   <section class="card">
@@ -180,8 +190,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
         <h2>Benchmark pieces</h2>
         <p class="sub" id="benchSub">Tests and benchmark pieces over time.</p>
       </div>
-      <select id="benchPick" aria-label="Benchmark"></select>
     </div>
+    <div class="toolbar" style="margin:0 0 10px"><div class="seg" id="benchChips"></div>
+      <select id="benchPick" aria-label="More formats"></select></div>
     <div class="seg" id="metric" style="margin-bottom:10px">
       <button data-v="split" aria-pressed="true">Split</button><button data-v="watts">Watts</button>
       <button data-v="hr">HR</button><button data-v="w_hr">W/HR</button>
@@ -189,20 +200,6 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="chart" id="bench"></div>
     <div class="legend" id="benchLegend"></div>
     <div class="tablewrap"><table id="benchTable"></table></div>
-  </section>
-
-  <section class="card">
-    <h2>Steady-state efficiency</h2>
-    <p class="sub" id="ssSub"></p>
-    <div class="toolbar" style="margin:0 0 8px"><span class="sub" style="margin:0">First</span><div class="seg" id="ssWin"></div></div>
-    <div class="toolbar" style="margin:0 0 10px">
-      <span class="sub" style="margin:0">Split</span>
-      <select id="ssLo" aria-label="Fastest split"></select><span class="sub" style="margin:0">to</span>
-      <select id="ssHi" aria-label="Slowest split"></select>
-      <div class="seg" id="ssMetric"><button data-v="w_hr" aria-pressed="true">W/HR</button><button data-v="hr">HR</button></div>
-    </div>
-    <div class="chart" id="steady"></div>
-    <div class="legend" id="ssLegend"></div>
   </section>
 
   <section class="card" id="waterCard" hidden>
@@ -220,10 +217,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="row">
       <div><h2>Session log</h2><p class="sub" id="logSub">Every erg and on-water session, newest first.</p></div>
       <div class="toolbar" style="margin:0">
-        <div class="seg" id="logKind"><button data-v="all" aria-pressed="true">All</button><button data-v="Erg">Erg</button><button data-v="Water">Water</button></div>
+        <div class="seg" id="logKind"><button data-v="all" aria-pressed="true">All</button><button data-v="Erg">Erg</button><button data-v="Water">Water</button><button data-v="Indoor (Garmin)">Garmin indoor</button></div>
         <select id="logType" aria-label="Session type"><option value="">All types</option><option value="steady">Steady</option>
           <option value="threshold">Threshold</option><option value="race_pace">Race pace</option><option value="test">Test</option>
-          <option value="other">Other</option><option value="low">Low-confidence only</option></select>
+          <option value="hard">Hard (Garmin)</option><option value="other">Other</option><option value="low">Low-confidence only</option></select>
+        <label class="sub check" style="margin:0"><input type="checkbox" id="logShort"> Pieces under 5 min</label>
       </div>
     </div>
     <div class="tablewrap" style="max-height:420px"><table id="logTable"></table></div>
@@ -356,8 +354,7 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 }
 
 // ---------- state ----------
-const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
-  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", logType: "", view: "time", seasonSrc: "", goal: null, effMode: "pace" };
+const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", waterMetric: "hr", logKind: "all", logType: "", logShort: false, todSplit: false, view: "time", seasonSrc: "", goal: null, effMode: "pace" };
 try { if (localStorage.getItem("view") === "season") state.view = "season"; } catch (e) {}
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
@@ -415,7 +412,10 @@ function renderThisWeek() {
       tiles.push([g.label, s.done >= g.target ? "Done" : "Ended", `${fmtM(s.done)} of ${fmtM(g.target)}`]);
     }
   }
-  tiles.push(["Meters this week", fmtM(erg), DATA.water.length ? `erg · ${fmtM(water)} on water` : "erg"]);
+  const tw = DATA.time_weeks.find(x => x.week === monday), mins = tw ? tw.erg + tw.water + tw.indoor : 0;
+  tiles.push(["Meters this week", fmtM(erg), `erg${DATA.water.length ? ` · ${fmtM(water)} water` : ""} · ${fmtHM(mins)} training`]);
+  const hw = DATA.hard_weeks.find(x => x.week === monday), target = A().hard_sessions_target ?? 2;
+  tiles.push(["Hard sessions", `${hw ? hw.n : 0} / ${target}`, hw && hw.n ? `erg ${hw.erg} · water ${hw.water} · Garmin indoor ${hw.indoor}` : "none yet this week"]);
   const iw = DATA.intensity.find(x => x.week === monday), ip = iw && weekPct(iw), a = A();
   if (ip) {
     tiles.push(["% easy (Z1–Z2)", `${Math.round(ip.easy)}%`, `Z3 ${Math.round(ip.mod)}% · hard ${Math.round(ip.hard)}% · ${Math.round(ip.tot / 60)} min${iw.water_s ? " incl. water" : ""}`]);
@@ -424,6 +424,13 @@ function renderThisWeek() {
   } else tiles.push(["% easy (Z1–Z2)", "—", DATA.strokes_coverage[0] ? "no erg HR this week yet" : "needs per-stroke HR", "na"]);
   const wd = DATA.drift.filter(r => r.date >= monday && r.drift > (a.drift_flag_pct ?? 5));
   if (wd.length) flags.push(["warn", `<b>HR drift ${wd.map(r => r.drift.toFixed(1) + "%").join(", ")}</b> on ${wd.length === 1 ? "a steady session" : "steady sessions"} this week (flag at ${a.drift_flag_pct ?? 5}%). Check fueling, heat and sleep, or ease the pace.`]);
+  { const hb = A().efficiency_hr_band || [142, 149];  // aerobic efficiency tile (coach F15)
+    const rows = DATA.efficiency.filter(r => r.hr >= hb[0] && r.hr <= hb[1] + 0.99);
+    const roll = rolling28(rows, "split"), last = roll[roll.length - 1];
+    const prev = last && roll.filter(p => daysBetween(p.date, last.date) >= 28).pop();
+    if (last) tiles.push([`Pace at ${hb[0]}–${hb[1]} bpm`, fmtSplit(last.y),
+      prev ? `${last.y <= prev.y ? "▲ faster" : "▼ slower"} than ${fmtSplit(prev.y)} 4 wk earlier · 4-wk avg` : "4-week average"]);
+    else tiles.push(["Aerobic efficiency", "—", "no steady sessions in the HR band yet", "na"]); }
   const rl = DATA.recovery[DATA.recovery.length - 1];
   if (rl && rl.rhr7) {
     const diff = rl.base ? rl.rhr7 - rl.base : null, streak = rhrStreak();
@@ -448,30 +455,72 @@ const bandTxt = b => `${fmtSplit(secsOf(b[0]))}–${fmtSplit(secsOf(b[1]))}`;
 const secsOf = mmss => { const [m, s] = String(mmss).split(":"); return +m * 60 + +s; };
 const needs = (node, what) => { node.innerHTML = `<div class="empty">Needs ${what}.</div>`; };
 
+// ---------- time of day (coach I19-I20) ----------
+const TOD = ["early", "midday", "evening"], TOD_LABEL = { early: "Early (< 8:00)", midday: "Midday (8–16)", evening: "Evening (≥ 16:00)" };
+const todColor = b => css({ early: "--s4", midday: "--s3", evening: "--s2" }[b] || "--text-3");
+const todLegend = () => TOD.map(b => `<span><i style="background:${todColor(b)}"></i>${TOD_LABEL[b]}</span>`).join("");
+// points colored by bucket; with split on, one 28-day rolling line per bucket (>= 5 sessions)
+function todSeries(rows, key, tip, split) {
+  const out = TOD.map(b => ({ points: rows.filter(r => r.tod === b && inRange(r.date)).map(r => ({ x: t(r.date), y: r[key], tip: tip(r), pb: r.flag })),
+    color: todColor(b), dots: true, dotR: 3.5, opacity: split ? 0.45 : 0.85 }));
+  if (split) TOD.forEach(b => { const rs = rows.filter(r => r.tod === b);
+    if (rs.length >= 5) out.push({ points: rolling28(rs, key).filter(p => inRange(p.date)), color: todColor(b), line: true, width: 2.5, noHover: true }); });
+  else out.push({ points: rolling28(rows, key).filter(p => inRange(p.date)), color: css("--text-2"), line: true, width: 2.5, noHover: true });
+  return out;
+}
+
 function renderEfficiency() {
-  const node = document.getElementById("eff"), mode = state.effMode, a = A();
+  const node = document.getElementById("eff"), mode = state.effMode, a = A(), split = state.todSplit;
   const [w0, w1] = a.efficiency_window_min || [5, 35], hb = a.efficiency_hr_band || [142, 149];
   const pb = (a.steady_pace_band || ["2:08", "2:12"]).map(secsOf);
   const all = DATA.efficiency;
-  const rows = mode === "pace" ? all.filter(r => r.hr >= hb[0] && r.hr <= hb[1] + 0.99) : all.filter(r => r.split >= pb[0] && r.split < pb[1] + 1);
-  const key = mode === "pace" ? "split" : "hr";
-  const fmt = mode === "pace" ? fmtSplit : v => Math.round(v) + " bpm";
-  document.getElementById("effSub").textContent = (mode === "pace"
-    ? `Average split over minutes ${w0}–${w1} of steady sessions whose HR in that window was ${hb[0]}–${hb[1]} bpm. Faster = fitter.`
-    : `Average HR over minutes ${w0}–${w1} of steady sessions whose split in that window was ${bandTxt(a.steady_pace_band || ["2:08", "2:12"])}. Lower = fitter.`) +
+  const rows = mode === "pace" ? all.filter(r => r.hr >= hb[0] && r.hr <= hb[1] + 0.99)
+    : mode === "hr" ? all.filter(r => r.split >= pb[0] && r.split < pb[1] + 1) : all;
+  const key = { pace: "split", hr: "hr", whr: "w_hr" }[mode];
+  const fmt = { pace: fmtSplit, hr: v => Math.round(v) + " bpm", whr: v => v.toFixed(2) }[mode];
+  document.getElementById("effSub").textContent = ({
+    pace: `Average split over minutes ${w0}–${w1} of steady sessions whose HR in that window was ${hb[0]}–${hb[1]} bpm. Faster = fitter.`,
+    hr: `Average HR over minutes ${w0}–${w1} of steady sessions whose split in that window was ${bandTxt(a.steady_pace_band || ["2:08", "2:12"])}. Lower = fitter.`,
+    whr: `Watts per heartbeat over minutes ${w0}–${w1} of every steady session. Higher = fitter, but it also rises when you row harder.` }[mode]) +
     ` ${rows.length} sessions; line = 4-week rolling average.`;
+  renderTodReport();
   if (!DATA.strokes_coverage[0]) return needs(node, "per-stroke data");
-  const tip = r => `${fmtDate(r.date)} · ${r.minutes} min piece<br><b>${fmtSplit(r.split)}</b> at <b>${Math.round(r.hr)} bpm</b> (min ${w0}–${w1})${r.rate ? ` · r${r.rate}` : ""}`;
+  const tip = r => `${fmtDate(r.date)} · ${r.start || "?"} · ${r.minutes} min piece<br><b>${fmtSplit(r.split)}</b> at <b>${Math.round(r.hr)} bpm</b>` +
+    ` · ${r.w_hr.toFixed(2)} W/beat${r.rate ? ` · r${r.rate}` : ""}`;
   if (state.view === "season") {
     const labels = overlay(node, rows.map(r => ({ date: r.date, y: r[key], tip: tip(r) })), { yFmt: fmt, invert: mode === "pace" });
     document.getElementById("effLegend").innerHTML = seasonLegend(labels);
-    return;
+  } else {
+    chart(node, { invert: mode === "pace", yFmt: fmt, events: EVENTS(), series: todSeries(rows, key, tip, split) });
+    document.getElementById("effLegend").innerHTML = todLegend() + `<span style="color:var(--text-3)">${split ? "Lines: rolling average per time of day (5+ sessions)" : "Line: rolling average"}</span>`;
   }
-  const shown = rows.filter(r => inRange(r.date)), roll = rolling28(rows, key).filter(p => inRange(p.date));
-  chart(node, { invert: mode === "pace", yFmt: fmt, events: EVENTS(), series: [
-    { points: shown.map(r => ({ x: t(r.date), y: r[key], tip: tip(r) })), color: css("--s1-soft"), dots: true, dotR: 3.5 },
-    { points: roll, color: css("--s1"), line: true, width: 2.5, noHover: true }] });
-  document.getElementById("effLegend").innerHTML = TREND_LEGEND("s1");
+}
+
+function renderTodReport() {
+  const rep = DATA.tod_report || [], el = document.getElementById("todReport");
+  if (!rep.length) { el.innerHTML = ""; return; }
+  const f = v => v == null ? "—" : (v > 0 ? "+" : "") + v;
+  el.innerHTML = `<summary>Early vs evening, by quarter</summary><p class="sub" style="margin:6px 0">Steady sessions per time of day, and the ` +
+    `early-minus-evening median difference where both exist. Pace at HR: positive = early sessions slower. W/HR: negative = early less efficient.</p>` +
+    `<div class="tablewrap"><table><thead><tr><th>Quarter</th><th>Early</th><th>Midday</th><th>Evening</th><th>Pace at HR, s</th><th>W/HR</th></tr></thead><tbody>` +
+    rep.map(r => `<tr><td>${r.quarter}</td><td>${r.counts.early}</td><td>${r.counts.midday}</td><td>${r.counts.evening}</td>` +
+      `<td>${f(r.pace_diff)}${r.pace_diff != null ? ` <span class="sub">(${r.pace_n[0]} vs ${r.pace_n[1]})</span>` : ""}</td><td>${f(r.whr_diff)}</td></tr>`).join("") + "</tbody></table></div>";
+}
+
+function renderHard() {
+  const node = document.getElementById("hard"), target = A().hard_sessions_target ?? 2;
+  document.getElementById("hardNote").textContent = `threshold, race pace, tests and hard Garmin sessions; target ${target} (dashed)`;
+  const wk = DATA.hard_weeks.filter(w => inRange(w.week));
+  if (!wk.length) return needs(node, "sessions in this range");
+  const T0 = t(wk[0].week), T1 = t(wk[wk.length - 1].week) + 7 * 864e5;
+  chart(node, { height: 120, bars: true, yMin0: true, yFmt: v => Number.isInteger(v) ? String(v) : "", events: EVENTS(), series: [
+    { color: css("--s2"), points: wk.map(w => ({ x: t(w.week), y: w.n, tip: `Week of ${fmtDate(w.week)}<br><b>${w.n}</b> hard (erg ${w.erg}, water ${w.water}, Garmin indoor ${w.indoor})` })) }] });
+  const svg = node.querySelector("svg"), yt = [...node.querySelectorAll(".axis text")].filter(e => e.getAttribute("text-anchor") === "end");
+  const y0 = yt.find(e => e.textContent === "0"), yN = yt.find(e => +e.textContent > 0);
+  if (svg && y0 && yN) {  // dashed target line, placed from two labelled ticks
+    const py = v => +y0.getAttribute("y") - 4 + (v / +yN.textContent) * ((+yN.getAttribute("y") - 4) - (+y0.getAttribute("y") - 4));
+    el("line", { x1: 52, x2: svg.viewBox.baseVal.width - 14, y1: py(target), y2: py(target), stroke: css("--text-2"), "stroke-dasharray": "5 4" }, svg);
+  }
 }
 
 function weekPct(w) { const tot = w.easy + w.moderate + w.hard; return tot ? { easy: 100 * w.easy / tot, mod: 100 * w.moderate / tot, hard: 100 * w.hard / tot, tot } : null; }
@@ -481,8 +530,8 @@ function renderIntensity() {
   const rows = DATA.intensity.map(w => ({ ...w, p: weekPct(w) })).filter(w => w.p && w.p.tot >= 20 * 60);
   const wc = DATA.water_hr_coverage || [0, 0];
   document.getElementById("intSub").textContent = `Share of rowing time per week in easy (Z1–Z2), Z3 and hard (Z4+) zones: erg from per-stroke HR` +
-    (wc[0] ? `, on-water from Garmin HR (${wc[0]} of ${wc[1]} sessions)` : "") + `. Target ≥ ${target}% easy; weeks with Z3 over ${z3}% are flagged. ` +
-    `Rest between erg intervals isn't recorded, so it isn't counted.`;
+    (wc[0] ? `, on-water and Garmin-only indoor sessions from Garmin HR streams` : "") + `, all with the coach's zones. Target ≥ ${target}% easy; weeks with Z3 over ${z3}% are flagged. ` +
+    `Rest inside Garmin-recorded sessions counts as easy time, so % easy can read high on interval days; the erg doesn't record rest between intervals, so erg rest isn't counted.`;
   if (!rows.length) return needs(node, "per-stroke HR data");
   const tip = w => `Week of ${fmtDate(w.week)} · ${Math.round(w.p.tot / 60)} min with HR${w.water_s ? ` (${Math.round(w.water_s / 60)} on water)` : ""}<br>Easy <b>${Math.round(w.p.easy)}%</b> · Z3 <b>${Math.round(w.p.mod)}%</b>` +
     `${w.p.mod > z3 ? " ⚑" : ""} · Hard <b>${Math.round(w.p.hard)}%</b>`;
@@ -506,13 +555,13 @@ function renderIntensity() {
 }
 
 function renderDrift() {
-  const node = document.getElementById("drift"), a = A(), flag = a.drift_flag_pct ?? 5;
-  const rows = DATA.drift;
-  document.getElementById("driftSub").textContent = `Aerobic decoupling on steady sessions of ${a.drift_min_minutes ?? 30}+ min: how much speed per heartbeat falls from ` +
-    `the first half to the second (after minute ${(a.efficiency_window_min || [5])[0]}). Positive = drift; over ${flag}% is flagged. ${rows.length} sessions.`;
+  const node = document.getElementById("drift"), a = A(), flag = a.drift_flag_pct ?? 5, [d0, d1] = a.drift_window_min || [5, 45];
+  const rows = DATA.drift.map(r => ({ ...r, flag: r.drift > flag }));
+  document.getElementById("driftSub").textContent = `Aerobic decoupling on steady sessions of ${d1}+ min, over a fixed window: speed per heartbeat in minutes ` +
+    `${d0}–${(d0 + d1) / 2} vs ${(d0 + d1) / 2}–${d1}, so short and long pieces compare fairly. Positive = drift; over ${flag}% is ringed. ${rows.length} sessions.`;
   if (!rows.length) return needs(node, "per-stroke HR data on steady sessions");
-  const tip = r => `${fmtDate(r.date)} · ${r.minutes} min<br>Drift <b>${r.drift.toFixed(1)}%</b><br>1st half ${fmtSplit(r.halves[0][0])} @ ${r.halves[0][1]} · ` +
-    `2nd half ${fmtSplit(r.halves[1][0])} @ ${r.halves[1][1]}`;
+  const tip = r => `${fmtDate(r.date)} · ${r.start || "?"} · ${r.minutes} min${r.src !== "Erg" ? " · " + r.src : ""}<br>Drift <b>${r.drift.toFixed(1)}%</b> (min ${d0}–${d1})` +
+    `${r.whole != null ? ` · whole piece ${r.whole.toFixed(1)}%` : ""}<br>${fmtSplit(r.halves[0][0])} @ ${r.halves[0][1]} → ${fmtSplit(r.halves[1][0])} @ ${r.halves[1][1]}`;
   if (state.view === "season") {
     const labels = overlay(node, rows.map(r => ({ date: r.date, y: r.drift, tip: tip(r) })), { yFmt: v => v.toFixed(0) + "%" });
     document.getElementById("driftLegend").innerHTML = seasonLegend(labels);
@@ -523,9 +572,8 @@ function renderDrift() {
   const T0 = t(shown[0].date), T1 = t(shown[shown.length - 1].date);
   chart(node, { yFmt: v => v.toFixed(0) + "%", events: EVENTS(), series: [
     { points: [{ x: T0, y: flag }, { x: T1, y: flag }], color: css("--s4"), line: true, width: 1, dash: "5 4", noHover: true },
-    { points: shown.map(r => ({ x: t(r.date), y: r.drift, tip: tip(r), pb: r.drift > flag })), color: css("--s1-soft"), dots: true, dotR: 3.5 },
-    { points: rolling28(rows, "drift").filter(p => inRange(p.date)), color: css("--s1"), line: true, width: 2.5, noHover: true }] });
-  document.getElementById("driftLegend").innerHTML = TREND_LEGEND("s1") + `<span><i class="ring"></i>Over ${flag}%</span>`;
+    ...todSeries(rows, "drift", tip, state.todSplit)] });
+  document.getElementById("driftLegend").innerHTML = todLegend() + `<span><i class="ring"></i>Over ${flag}%</span>`;
 }
 
 function renderRecovery() {
@@ -597,8 +645,6 @@ function renderGoal() {
 
 function renderTiles() {
   const s = DATA.summary, cur = DATA.seasons[DATA.seasons.length - 1];
-  const ss = steadyRows(DATA.steady_cfg.default), lastSS = ss[ss.length - 1];
-  const prevSS = ss.filter(x => t(x.date) <= t(lastSS?.date || "1970-01-01") - 90 * 864e5).pop();
   const tiles = [
     ["Lifetime meters", fmtM(s.total_meters), s.catchup_meters
       ? `incl. ${fmtM(s.catchup_meters)} catchup · ${s.workouts} sessions`
@@ -607,8 +653,6 @@ function renderTiles() {
     ["Last 4 weeks", fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.meters, 0)),
       DATA.water.length ? `erg · ${fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.water, 0))} on water` : "meters"],
     ...(DATA.water.length ? [["On the water", fmtM(s.water_year), `${new Date().getFullYear()} · ${fmtM(s.water_meters)} all time`]] : []),
-    [DATA.steady_cfg.default === "all" ? "W/HR (rolling)" : `W/HR, first ${DATA.steady_cfg.default} min`, lastSS ? lastSS.w_hr_avg.toFixed(2) : "—",
-      lastSS && prevSS ? `${lastSS.w_hr_avg >= prevSS.w_hr_avg ? "▲" : "▼"} from ${prevSS.w_hr_avg.toFixed(2)} 3 mo ago` : "need HR data"],
   ];
   document.getElementById("tiles").innerHTML = tiles.map(([k, v, d]) =>
     `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
@@ -640,6 +684,17 @@ function renderWeekly() {
     ? '<span><i style="background:var(--s1)"></i>Erg</span><span><i style="background:var(--s2)"></i>Water</span>' : "";
 }
 
+const fmtHM = m => `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2, "0")}m`;
+function renderTime() {
+  const node = document.getElementById("time"), wk = DATA.time_weeks.filter(w => inRange(w.week));
+  if (!wk.length) return needs(node, "sessions in this range");
+  const tip = w => `Week of ${fmtDate(w.week)}<br><b>${fmtHM(w.erg + w.water + w.indoor)}</b> · erg ${fmtHM(w.erg)} · water ${fmtHM(w.water)} · Garmin indoor ${fmtHM(w.indoor)}`;
+  chart(node, { height: 160, bars: true, yFmt: v => v + " h", events: EVENTS(), series: [
+    { color: css("--s1"), points: wk.map(w => ({ x: t(w.week), y: w.erg / 60, tip: tip(w) })) },
+    { color: css("--s2"), points: wk.map(w => ({ x: t(w.week), y: w.water / 60 })), noHover: true },
+    { color: css("--s3"), points: wk.map(w => ({ x: t(w.week), y: w.indoor / 60 })), noHover: true }] });
+}
+
 function renderWater() {
   const card = document.getElementById("waterCard");
   if (!DATA.water.length) { card.hidden = true; return; }
@@ -669,23 +724,25 @@ function renderWater() {
     "Whole-session averages, so warm-ups and paddling are included; split depends on wind and current, so HR and rate trend best.";
 }
 
-const TYPE_LABEL = { steady: "Steady", threshold: "Threshold", race_pace: "Race pace", test: "Test", other: "Other", water: "Water" };
+const TYPE_LABEL = { steady: "Steady", threshold: "Threshold", race_pace: "Race pace", test: "Test", other: "Other", water: "Water", hard: "Hard" };
 function renderLog() {
   const k = state.logKind, ty = state.logType;
-  const rows = DATA.sessions.filter(r => (k === "all" || r.kind === k) && inRange(r.date)
+  const rows = DATA.sessions.filter(r => (k === "all" || r.kind === k) && inRange(r.date) && (state.logShort || !r.short)
     && (!ty || (ty === "low" ? r.low : r.type === ty))).reverse();
+  const hiddenShort = DATA.sessions.filter(r => r.short && inRange(r.date)).length;
   const c = DATA.summary.types || {}, n = DATA.summary.workouts;
   document.getElementById("logSub").innerHTML = `${rows.length} sessions shown. Erg types: ` +
     ["steady", "threshold", "race_pace", "test", "other"].map(x => `${TYPE_LABEL[x].toLowerCase()} ${c[x] || 0}`).join(", ") +
     `. ${n - DATA.summary.types_tagged} inferred, ${DATA.summary.types_tagged} tagged; <b>?</b> = low-confidence (${DATA.summary.types_low}).` +
-    ` Override with #steady #threshold #race #test #other in the Logbook comment.`;
+    ` Override a type with #steady #threshold #race #test #other in the Logbook comment, or a Garmin activity title containing hard, steady, threshold, race or test.` +
+    (state.logShort ? "" : ` ${hiddenShort} pieces under 5 min hidden (still counted in totals).`);
   document.getElementById("logTable").innerHTML =
-    `<thead><tr><th>Date</th><th style="text-align:left">Type</th><th style="text-align:left">Session</th><th>Meters</th><th>Time</th><th>Split</th><th>Rate</th><th>HR</th></tr></thead><tbody>` +
-    rows.map(r => `<tr><td>${fmtDate(r.date)}</td>` +
+    `<thead><tr><th>Date</th><th>Start</th><th style="text-align:left">Type</th><th style="text-align:left">Session</th><th>Meters</th><th>Time</th><th>Split</th><th>Rate</th><th>HR</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${fmtDate(r.date)}</td><td title="${r.tod ? TOD_LABEL[r.tod] : ""}">${r.start || "—"}${r.tod ? ` <span style="color:${todColor(r.tod)}">●</span>` : ""}</td>` +
       `<td style="text-align:left" title="${r.type_src === "tag" ? "From your Logbook tag" : r.low ? "Inferred, low confidence" : r.kind === "Erg" ? "Inferred" : ""}">` +
-      `${TYPE_LABEL[r.type] || r.kind}${r.type_src === "tag" ? " #" : ""}${r.low ? ' <b style="color:var(--s4)">?</b>' : ""}</td>` +
+      `${r.kind === "Indoor (Garmin)" ? "Garmin · " : ""}${TYPE_LABEL[r.type] || r.kind}${r.type_src === "tag" || r.type_src === "title" ? " #" : ""}${r.low ? ' <b style="color:var(--s4)">?</b>' : ""}</td>` +
       `<td style="text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis">${(r.name || "").replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;")}</td>` +
-      `<td>${r.meters.toLocaleString()}</td><td>${fmtTime(r.seconds)}</td><td>${fmtSplit(r.split)}</td>` +
+      `<td>${r.meters != null ? r.meters.toLocaleString() : "—"}</td><td>${fmtTime(r.seconds)}</td><td>${r.split ? fmtSplit(r.split) : "—"}</td>` +
       `<td>${r.rate ?? "—"}</td><td>${r.hr ? Math.round(r.hr) : "—"}</td></tr>`).join("") + "</tbody>";
 }
 
@@ -764,55 +821,14 @@ function renderBench() {
     `${TYPE_LABEL[b.type]} sessions with the same format only. ${b.rows.length} pieces · best ${fmtSplit(best.split)}/500m (${fmtTime(best.seconds)}) on ${fmtDate(best.date)}` +
     (b.rows.some(r => r.rest) ? ` · splits are work only` : "") +
     (state.metric !== "split" && !pts.length ? " · no HR recorded on these pieces" : "");
-  table.innerHTML = `<thead><tr><th>Date</th><th>Time</th><th>Meters</th><th>Split</th><th>Watts</th><th>Rate</th><th>HR</th><th>W/HR</th></tr></thead><tbody>` +
-    [...rows].reverse().map(r => `<tr><td>${fmtDate(r.date)}${r.pb ? '<span class="pbtag">PB</span>' : ""}</td><td>${fmtTime(r.seconds)}</td>` +
+  table.innerHTML = `<thead><tr><th>Date</th><th>Start</th><th>Time</th><th>Meters</th><th>Split</th><th>Watts</th><th>Rate</th><th>HR</th><th>W/HR</th></tr></thead><tbody>` +
+    [...rows].reverse().map(r => `<tr><td>${fmtDate(r.date)}${r.pb ? '<span class="pbtag">PB</span>' : ""}</td><td>${r.start || "—"}</td><td>${fmtTime(r.seconds)}</td>` +
       `<td>${r.meters.toLocaleString()}</td><td>${fmtSplit(r.split)}</td><td>${Math.round(r.watts)}</td><td>${r.rate ?? "—"}</td>` +
       `<td>${r.hr ? Math.round(r.hr) : "—"}</td><td>${r.w_hr ? r.w_hr.toFixed(2) : "—"}</td></tr>`).join("") + "</tbody>";
 }
 
 // Steady-state rows for a window ("all" = whole piece), with a rolling average.
-function steadyRows(win, lo = null, hi = null) {
-  const rows = DATA.steady.map(r => {
-    const v = win === "all" ? (r.w_hr ? r : null) : r.win[win];
-    return v ? { date: r.date, meters: r.meters, seconds: r.seconds, rate: r.rate,
-      split: v.split, hr: v.hr, w_hr: v.w_hr } : null;
-  }).filter(r => r && (lo == null || r.split >= lo) && (hi == null || r.split < hi + 1));
-  const n = DATA.steady_cfg.rolling;
-  rows.forEach((r, i) => { const w = rows.slice(Math.max(0, i - n + 1), i + 1);
-    r.w_hr_avg = w.reduce((a, x) => a + x.w_hr, 0) / w.length;
-    r.hr_avg = w.reduce((a, x) => a + x.hr, 0) / w.length; });
-  return rows;
-}
-
-function renderSteady() {
-  const win = state.ssWin, M = state.ssMetric, band = state.ssLo != null || state.ssHi != null;
-  const rows = steadyRows(win, state.ssLo, state.ssHi).filter(r => inRange(r.date));
-  const val = r => M === "hr" ? r.hr : r.w_hr, avgOf = r => M === "hr" ? r.hr_avg : r.w_hr_avg;
-  const fmt = v => M === "hr" ? Math.round(v) + " bpm" : v.toFixed(2);
-  const dots = rows.map(r => ({ x: t(r.date), y: val(r),
-    tip: `${fmtDate(r.date)} · ${Math.round(r.seconds / 60)} min piece<br><b>${fmtSplit(r.split)}</b> · ${Math.round(r.hr)} bpm · ` +
-      `${r.w_hr.toFixed(2)} W/beat · r${r.rate}${win === "all" ? "" : `<br>over the first ${win} min`}` }));
-  const avg = rows.map(r => ({ x: t(r.date), y: avgOf(r) }));
-  const what = M === "hr" ? "Average heart rate" : "Watts per heartbeat";
-  const better = M === "hr" ? "Lower means fitter at that pace." : "Higher means more power for the same effort.";
-  const scope = win === "all" ? `over each whole piece (${DATA.steady_cfg.min_minutes}+ min, rate ≤ 22)`
-    : `over the first ${win} minutes of each piece at least that long`;
-  const bandTxt = band ? `, only pieces averaging ${state.ssLo != null ? fmtSplit(state.ssLo) : "any"}–${state.ssHi != null ? fmtSplit(state.ssHi + 0.9) : "any"}/500m` : "";
-  document.getElementById("ssSub").textContent = `${what} ${scope}${bandTxt}. ${better} ${rows.length} pieces.`;
-  if (state.view === "season") {
-    const all = steadyRows(win, state.ssLo, state.ssHi);
-    const labels = overlay(document.getElementById("steady"), all.map(r => ({ date: r.date, y: val(r),
-      tip: `${fmtDate(r.date)}<br><b>${fmt(val(r))}</b> · ${fmtSplit(r.split)} · ${Math.round(r.hr)} bpm` })), { yFmt: fmt });
-    document.getElementById("ssLegend").innerHTML = seasonLegend(labels) + '<span style="color:var(--text-3)">Dots: sessions · Lines: rolling average</span>';
-    return;
-  }
-  document.getElementById("ssLegend").innerHTML = TREND_LEGEND("s1");
-  chart(document.getElementById("steady"), { events: EVENTS(), series: [
-    { points: dots, color: css("--s1-soft"), dots: true, dotR: 3.5 },
-    { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: fmt, invert: false });
-}
-
-function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderDrift(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
+function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -821,7 +837,7 @@ function seg(id, key, after) {
     box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
     state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
 }
-seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderDrift(); renderRecovery(); renderWeekly(); renderBench(); renderSteady(); renderWater(); renderLog(); });
+seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderWeekly(); renderBench(); renderWater(); renderLog(); });
 function applyView() {  // range only applies to the timeline
   const off = state.view === "season";
   for (const id of ["range", "rangeLbl"]) { const e = document.getElementById(id);
@@ -838,36 +854,25 @@ seg("effMode", "effMode", renderEfficiency);
 seg("waterMetric", "waterMetric", renderWater);
 seg("logKind", "logKind", renderLog);
 document.getElementById("logType").addEventListener("change", e => { state.logType = e.target.value; renderLog(); });
+document.getElementById("logShort").addEventListener("change", e => { state.logShort = e.target.checked; renderLog(); });
+document.querySelectorAll(".todSplit").forEach(cb => cb.addEventListener("change", e => {
+  state.todSplit = e.target.checked; document.querySelectorAll(".todSplit").forEach(x => x.checked = state.todSplit);
+  renderEfficiency(); renderDrift(); }));
 seg("metric", "metric", renderBench);
-document.getElementById("ssWin").innerHTML = DATA.steady_cfg.windows.map(n =>
-  `<button data-v="${n}" aria-pressed="${String(n) === DATA.steady_cfg.default}">${n}m</button>`).join("") +
-  `<button data-v="all" aria-pressed="${DATA.steady_cfg.default === "all"}">Whole</button>`;
-seg("ssWin", "ssWin", renderSteady);
-seg("ssMetric", "ssMetric", renderSteady);
-(() => {
-  const splits = DATA.steady.flatMap(r => [r.split, ...Object.values(r.win).map(v => v.split)]).filter(Boolean);
-  if (!splits.length) return;
-  const lo = Math.floor(Math.min(...splits)), hi = Math.floor(Math.max(...splits));
-  const opts = ['<option value="">Any</option>'];
-  for (let v = lo; v <= hi; v++) opts.push(`<option value="${v}">${fmtSplit(v).replace(/\.0$/, "")}</option>`);
-  for (const id of ["ssLo", "ssHi"]) {
-    const sel = document.getElementById(id); sel.innerHTML = opts.join("");
-    sel.addEventListener("change", () => {
-      state[id] = sel.value === "" ? null : +sel.value;
-      if (state.ssLo != null && state.ssHi != null && state.ssLo > state.ssHi) {   // keep fastest <= slowest
-        const other = id === "ssLo" ? "ssHi" : "ssLo"; state[other] = state[id];
-        document.getElementById(other).value = String(state[id]);
-      }
-      renderSteady();
-    });
-  }
-})();
 const pick = document.getElementById("benchPick");
-pick.innerHTML = ["test", "threshold", "race_pace", "steady", "other"].map(ty => {
-  const gs = DATA.benchmarks.filter(b => b.type === ty);
+const MAIN_FORMATS = DATA.benchmarks.filter(b => b.rows.length >= 3), MORE_FORMATS = DATA.benchmarks.filter(b => b.rows.length < 3);
+state.bench = (DATA.benchmarks.find(b => b.label === "2×20min") || MAIN_FORMATS[0] || DATA.benchmarks[0] || {}).id;
+const benchChips = () => { document.getElementById("benchChips").innerHTML = MAIN_FORMATS.map(b =>
+  `<button data-v="${b.id}" aria-pressed="${b.id === state.bench}">${b.label} <span class="sub">${b.rows.length}</span></button>`).join("");
+  pick.value = MORE_FORMATS.some(b => b.id === state.bench) ? state.bench : ""; };
+pick.innerHTML = `<option value="">More formats (${MORE_FORMATS.length})…</option>` + ["test", "threshold", "race_pace", "steady", "other"].map(ty => {
+  const gs = MORE_FORMATS.filter(b => b.type === ty);
   return gs.length ? `<optgroup label="${TYPE_LABEL[ty]}">` + gs.map(b => `<option value="${b.id}">${b.label} (${b.rows.length})</option>`).join("") + "</optgroup>" : "";
 }).join("");
-pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
+document.getElementById("benchChips").addEventListener("click", e => { const btn = e.target.closest("button"); if (!btn) return;
+  state.bench = btn.dataset.v; benchChips(); renderBench(); });
+benchChips();
+pick.addEventListener("change", () => { if (!pick.value) return; state.bench = pick.value; benchChips(); renderBench(); });
 
 document.getElementById("meta").textContent = DATA.summary.last
   ? `${fmtDate(DATA.summary.first)} – ${fmtDate(DATA.summary.last)} · Concept2 Logbook${DATA.water.length ? " + Garmin" : ""}` : "No workouts yet.";
