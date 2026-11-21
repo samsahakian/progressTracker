@@ -116,7 +116,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
       <div><h2>Aerobic efficiency</h2><p class="sub" id="effSub"></p></div>
       <div class="seg" id="effMode"><button data-v="pace" aria-pressed="true">Pace at HR</button><button data-v="hr">HR at pace</button><button data-v="whr">W/HR</button></div>
     </div>
-    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day</label>
+    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day<span class="todNote"></span></label>
     <div class="chart" id="eff"></div>
     <div class="legend" id="effLegend"></div>
     <details id="todReport" class="report"></details>
@@ -167,7 +167,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   <section class="card">
     <h2>HR drift</h2>
     <p class="sub" id="driftSub"></p>
-    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day</label>
+    <label class="sub check"><input type="checkbox" class="todSplit"> Split by time of day<span class="todNote"></span></label>
     <div class="chart" id="drift"></div>
     <div class="legend" id="driftLegend"></div>
   </section>
@@ -842,8 +842,12 @@ function seg(id, key, after) {
     state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
 }
 seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderWeekly(); renderBench(); renderWater(); renderLog(); });
-function applyView() {  // range only applies to the timeline
+function applyView() {  // range and time-of-day split only apply to the timeline
   const off = state.view === "season";
+  document.querySelectorAll(".todSplit").forEach(cb => { cb.disabled = off;
+    cb.parentElement.style.opacity = off ? 0.45 : 1;
+    cb.parentElement.title = off ? "Switch to Timeline to split by time of day" : ""; });
+  document.querySelectorAll(".todNote").forEach(n => n.textContent = off ? " (Timeline view only)" : "");
   for (const id of ["range", "rangeLbl"]) { const e = document.getElementById(id);
     e.style.opacity = off ? 0.4 : 1; e.style.pointerEvents = off ? "none" : ""; }
   document.querySelectorAll("#view button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === state.view));
