@@ -94,6 +94,43 @@ def first_minutes(w, minutes, min_hr_coverage=0.9):
             "w_hr": round(watts / hr, 3)}
 
 
+def secs(mmss):
+    m, sec = str(mmss).split(":")
+    return int(m) * 60 + float(sec)
+
+
+TAGS = [("#steady", "steady"), ("#threshold", "threshold"), ("#race", "race_pace"), ("#test", "test"), ("#other", "other")]
+
+
+def classify(w, rules):
+    """Coach's session types for an erg result -> (type, source, low_confidence).
+
+    Logbook distance/time for interval workouts are work-only, so the split is the work split.
+    """
+    for tag, typ in TAGS:
+        if tag in w["comments"]:
+            return typ, "tag", False
+    sp, mins, hr = w["split"], w["seconds"] / 60, w["hr"]
+    test_max, race_max = secs(rules["test_max_split"]), secs(rules["race_max_split"])
+    steady_min = secs(rules["steady_min_split"])
+    near = lambda edge: abs(sp - edge) < rules.get("low_confidence_seconds", 1.0)
+    standard = (w["meters"] in rules["test_distances"]
+                or any(abs(w["seconds"] - m * 60) <= 5 for m in rules["test_minutes"]))
+    if not is_single_piece(w):
+        if sp <= race_max:
+            return "race_pace", "inferred", near(race_max)
+        if sp < steady_min:
+            return "threshold", "inferred", near(race_max) or near(steady_min)
+        return "other", "inferred", near(steady_min)
+    if standard and sp <= test_max:
+        return "test", "inferred", near(test_max)
+    if mins >= rules["steady_min_minutes"] and sp >= steady_min and (hr is None or hr <= rules["steady_max_hr"]):
+        return "steady", "inferred", hr is None or near(steady_min)
+    if mins >= rules["threshold_min_minutes"] and race_max < sp < steady_min:
+        return "threshold", "inferred", near(steady_min) or near(race_max)
+    return "other", "inferred", False
+
+
 def is_single_piece(w):
     return w["workout_type"] not in INTERVAL_TYPES
 
@@ -171,6 +208,12 @@ def build(results, cfg, manual_catchup=(), water=()):
     everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
     everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
+    rules = cfg.get("session_types")
+    for w in workouts:
+        w["stype"], w["stype_src"], w["stype_low"] = classify(w, rules) if rules else ("other", "inferred", False)
+    type_counts = defaultdict(int)
+    for w in workouts:
+        type_counts[w["stype"]] += 1
     catchup = [w for w in everything if w.get("volume_only")]
 
     # --- Benchmarks (first matching rule wins, so 30r20 beats the 30-min test) ---
@@ -262,7 +305,7 @@ def build(results, cfg, manual_catchup=(), water=()):
         season_lines.append(line)
 
     total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
-    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits")}
+    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits", "stype_low", "stype_src")}
     # Daily meters for goal pacing. Erg = Logbook timed results only (no catchup), like
     # Concept2's challenge count; water = Garmin outdoor rowing.
     daily = defaultdict(lambda: {"erg": 0, "water": 0})
@@ -283,6 +326,9 @@ def build(results, cfg, manual_catchup=(), water=()):
             "workouts": len(workouts),
             "catchup_entries": len(catchup),
             "catchup_meters": sum(w["meters"] for w in catchup),
+            "types": dict(type_counts),
+            "types_tagged": sum(w["stype_src"] == "tag" for w in workouts),
+            "types_low": sum(w["stype_low"] for w in workouts),
             "water_sessions": len(water),
             "water_meters": sum(w["meters"] for w in water),
             "water_year": sum(w["meters"] for w in water if w["date"][:4] == str(date.today().year)),
@@ -293,9 +339,11 @@ def build(results, cfg, manual_catchup=(), water=()):
         "water": list(water),
         "sessions": sorted(
             [{"kind": "Erg", "date": w["date"], "name": w["workout_type"], "meters": w["meters"],
-              "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"]} for w in workouts] +
+              "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"],
+              "type": w["stype"], "type_src": w["stype_src"], "low": w["stype_low"]} for w in workouts] +
             [{"kind": "Water", "date": w["date"], "name": w["name"], "meters": w["meters"],
-              "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"]} for w in water],
+              "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"],
+              "type": "water", "type_src": "", "low": False} for w in water],
             key=lambda r: r["date"]),
         "seasons": season_lines[-4:],  # last four seasons keeps the chart readable
         "benchmarks": [
@@ -330,6 +378,8 @@ def main():
     counts = {n: sum(str(n) in w["win"] for w in payload["steady"]) for n in payload["steady_cfg"]["windows"]}
     print("Steady-state pieces per first-N-minutes window:", counts)
     print(f"On-water sessions: {s['water_sessions']} ({s['water_meters']:,} m)")
+    print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
+          f"low-confidence {s['types_low']}")
 
 
 if __name__ == "__main__":

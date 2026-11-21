@@ -135,5 +135,24 @@
       "date": "2026-11-11",
       "label": "Cut ended"
     }
-  ]
+  ],
+  "session_types": {
+    "_help": "Coach's rules for typing erg sessions. A Logbook comment tag (#steady #threshold #race #test #other) always wins. Splits are /500m over work intervals only.",
+    "test_max_split": "2:02",
+    "test_distances": [
+      2000,
+      5000,
+      6000,
+      10000
+    ],
+    "test_minutes": [
+      30
+    ],
+    "race_max_split": "1:54",
+    "steady_min_split": "2:05",
+    "steady_max_hr": 158,
+    "steady_min_minutes": 20,
+    "threshold_min_minutes": 15,
+    "low_confidence_seconds": 1.0
+  }
 }

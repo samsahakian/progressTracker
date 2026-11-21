@@ -180,7 +180,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   <section class="card">
     <div class="row">
       <div><h2>Session log</h2><p class="sub" id="logSub">Every erg and on-water session, newest first.</p></div>
-      <div class="seg" id="logKind"><button data-v="all" aria-pressed="true">All</button><button data-v="Erg">Erg</button><button data-v="Water">Water</button></div>
+      <div class="toolbar" style="margin:0">
+        <div class="seg" id="logKind"><button data-v="all" aria-pressed="true">All</button><button data-v="Erg">Erg</button><button data-v="Water">Water</button></div>
+        <select id="logType" aria-label="Session type"><option value="">All types</option><option value="steady">Steady</option>
+          <option value="threshold">Threshold</option><option value="race_pace">Race pace</option><option value="test">Test</option>
+          <option value="other">Other</option><option value="low">Low-confidence only</option></select>
+      </div>
     </div>
     <div class="tablewrap" style="max-height:420px"><table id="logTable"></table></div>
   </section>
@@ -313,7 +318,7 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 
 // ---------- state ----------
 const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
-  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", view: "time", seasonSrc: "", goal: null };
+  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", logType: "", view: "time", seasonSrc: "", goal: null };
 try { if (localStorage.getItem("view") === "season") state.view = "season"; } catch (e) {}
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
@@ -484,13 +489,21 @@ function renderWater() {
     "Whole-session averages, so warm-ups and paddling are included; split depends on wind and current, so HR and rate trend best.";
 }
 
+const TYPE_LABEL = { steady: "Steady", threshold: "Threshold", race_pace: "Race pace", test: "Test", other: "Other", water: "Water" };
 function renderLog() {
-  const k = state.logKind;
-  const rows = DATA.sessions.filter(r => (k === "all" || r.kind === k) && inRange(r.date)).reverse();
-  document.getElementById("logSub").textContent = `${rows.length} sessions, newest first.`;
+  const k = state.logKind, ty = state.logType;
+  const rows = DATA.sessions.filter(r => (k === "all" || r.kind === k) && inRange(r.date)
+    && (!ty || (ty === "low" ? r.low : r.type === ty))).reverse();
+  const c = DATA.summary.types || {}, n = DATA.summary.workouts;
+  document.getElementById("logSub").innerHTML = `${rows.length} sessions shown. Erg types: ` +
+    ["steady", "threshold", "race_pace", "test", "other"].map(x => `${TYPE_LABEL[x].toLowerCase()} ${c[x] || 0}`).join(", ") +
+    `. ${n - DATA.summary.types_tagged} inferred, ${DATA.summary.types_tagged} tagged; <b>?</b> = low-confidence (${DATA.summary.types_low}).` +
+    ` Override with #steady #threshold #race #test #other in the Logbook comment.`;
   document.getElementById("logTable").innerHTML =
     `<thead><tr><th>Date</th><th style="text-align:left">Type</th><th style="text-align:left">Session</th><th>Meters</th><th>Time</th><th>Split</th><th>Rate</th><th>HR</th></tr></thead><tbody>` +
-    rows.map(r => `<tr><td>${fmtDate(r.date)}</td><td style="text-align:left">${r.kind}</td>` +
+    rows.map(r => `<tr><td>${fmtDate(r.date)}</td>` +
+      `<td style="text-align:left" title="${r.type_src === "tag" ? "From your Logbook tag" : r.low ? "Inferred, low confidence" : r.kind === "Erg" ? "Inferred" : ""}">` +
+      `${TYPE_LABEL[r.type] || r.kind}${r.type_src === "tag" ? " #" : ""}${r.low ? ' <b style="color:var(--s4)">?</b>' : ""}</td>` +
       `<td style="text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis">${(r.name || "").replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;")}</td>` +
       `<td>${r.meters.toLocaleString()}</td><td>${fmtTime(r.seconds)}</td><td>${fmtSplit(r.split)}</td>` +
       `<td>${r.rate ?? "—"}</td><td>${r.hr ? Math.round(r.hr) : "—"}</td></tr>`).join("") + "</tbody>";
@@ -642,6 +655,7 @@ document.getElementById("goalPick").innerHTML = DATA.goals.map(g =>
 seg("goalPick", "goal", renderGoal);
 seg("waterMetric", "waterMetric", renderWater);
 seg("logKind", "logKind", renderLog);
+document.getElementById("logType").addEventListener("change", e => { state.logType = e.target.value; renderLog(); });
 seg("metric", "metric", renderBench);
 document.getElementById("ssWin").innerHTML = DATA.steady_cfg.windows.map(n =>
   `<button data-v="${n}" aria-pressed="${String(n) === DATA.steady_cfg.default}">${n}m</button>`).join("") +
