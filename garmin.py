@@ -133,7 +133,7 @@ def main():
     print(f"Saved {len(acts)} activities (date, type, training load) to {ACT_OUT}")
     try:
         fit_tracks(rows, headers)
-    except Exception as e:  # optional; never lose the rowing data over it
+    except (Exception, SystemExit) as e:  # optional; never lose the rowing or daily data over it
         print(f"::warning::Garmin FIT download skipped: {e}")
     try:
         daily(headers)
@@ -149,7 +149,7 @@ def fit_tracks(rows, headers):
     print(f"FIT tracks: {len(rows) - len(todo)} cached, {len(todo)} to download")
     for r in todo:
         data = call("GET", f"/download-service/files/activity/{r['id']}",
-                    {**headers, "Accept": "application/zip, application/octet-stream"}, raw=True)
+                    {**headers, "Accept": "application/zip, application/x-zip-compressed, application/octet-stream"}, raw=True)
         try:
             tr = fitlite.track(data)
         except Exception as e:
