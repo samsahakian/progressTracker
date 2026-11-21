@@ -1,8 +1,13 @@
 name: Update dashboard
 
 on:
+  # Chicago time: weekdays 6:30, weekends 9:35. GitHub cron is UTC, so each time is listed for
+  # both standard (UTC-6) and daylight (UTC-5) time; the gate job runs only the one that matches today.
   schedule:
-    - cron: "17 11 * * *"   # daily, ~5–6 am Central
+    - cron: "30 12 * * 1-5"   # 6:30 CST
+    - cron: "30 11 * * 1-5"   # 6:30 CDT
+    - cron: "35 15 * * 0,6"   # 9:35 CST
+    - cron: "35 14 * * 0,6"   # 9:35 CDT
   workflow_dispatch:         # "Run workflow" button for an on-demand refresh
 
 permissions:
@@ -15,7 +20,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          off=$(TZ=America/Chicago date +%z)   # -0600 standard, -0500 daylight
+          run=true
+          if [ "$EVENT" = "schedule" ]; then
+            case "$CRON" in
+              "30 12 * * 1-5"|"35 15 * * 0,6") [ "$off" = "-0600" ] || run=false ;;
+              "30 11 * * 1-5"|"35 14 * * 0,6") [ "$off" = "-0500" ] || run=false ;;
+            esac
+          fi
+          echo "Chicago offset $off, schedule '$CRON' -> run=$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
