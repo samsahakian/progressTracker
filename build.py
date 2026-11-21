@@ -140,6 +140,7 @@ def secs(mmss):
     return int(m) * 60 + float(sec)
 
 
+TYPE_NAMES = {"threshold": "Threshold", "race_pace": "Race-pace", "test": "Test", "hard": "Hard", "steady": "Steady", "other": "Other"}
 TAGS = [("#steady", "steady"), ("#threshold", "threshold"), ("#race", "race_pace"), ("#test", "test"), ("#other", "other")]
 
 
@@ -431,7 +432,8 @@ def recovery_series(daily, acts, ath):
     return out, [{"week": w, "load": round(load[w]), "lifts": lifts[w]} for w in weeks]
 
 
-def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_daily=None, garmin_acts=(), garmin_indoor=()):
+def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_daily=None, garmin_acts=(), garmin_indoor=(),
+          hevy=None):
     everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
     everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
@@ -583,6 +585,24 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         time_w[monday(g["date"])]["indoor"] += g["elapsed"] or g["seconds"]
         hard_w[monday(g["date"])]["indoor"] += g["type"] in HARD
     load_time = [{"week": k, **{kk: round(vv / 60) for kk, vv in v.items()}} for k, v in sorted(time_w.items())]
+
+    # Hard rows with local start times, for the lifting tab's "heavy lower body before a hard row" check.
+    # Garmin-only indoor sessions are club practices and count as hard whatever their type (coach Q6).
+    hard_rows = []
+    for w in workouts:
+        if w["stype"] in HARD and w.get("start_t"):
+            hard_rows.append({"dt": datetime.fromisoformat(f"{w['date']}T{w['start_t']}"), "label": f"{TYPE_NAMES[w['stype']]} erg"})
+    for w in water:
+        if w["type"] in HARD and w.get("start_t"):
+            hard_rows.append({"dt": datetime.fromisoformat(f"{w['date']}T{w['start_t']}"), "label": "Hard on-water"})
+    for g in indoor_only:
+        if g["type"] != "fragment" and g.get("start_t"):
+            hard_rows.append({"dt": datetime.fromisoformat(f"{g['date']}T{g['start_t']}"), "label": "Club indoor (Garmin)"})
+    lifting_data = None
+    if hevy and hevy.get("workouts"):
+        import lifting
+        lifting_data = lifting.lifting_payload(hevy["workouts"], hevy.get("templates"), hevy.get("mapping", {}), garmin_acts,
+                                               hard_rows, cfg, cfg.get("timezone", "America/Chicago"))
     hard_weeks = [{"week": k, **v, "n": sum(v.values())} for k, v in sorted(hard_w.items())]
 
     # Aerobic efficiency (steady only, fixed window) and drift (steady, long enough)
@@ -786,6 +806,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         "artifacts": artifact_log if garmin_indoor else [],
         "indoor_counts": {t: sum(g["type"] == t for g in indoor_only) for t in ("hard", "steady", "other", "threshold", "race_pace", "test")},
         "events": cfg.get("events", []),
+        "lifting": lifting_data,
         "athlete": cfg.get("athlete", {}),
         "summary": {
             "total_meters": total_m,
@@ -829,6 +850,16 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
     }
 
 
+def load_hevy(data_dir):
+    """Hevy workouts and templates (written by hevy.py) plus the lifts.csv mapping, if present."""
+    hw, ht = data_dir / "hevy_workouts.json", data_dir / "hevy_templates.json"
+    if not hw.exists():
+        return None
+    import lifting
+    return {"workouts": json.loads(hw.read_text()), "templates": json.loads(ht.read_text()) if ht.exists() else [],
+            "mapping": lifting.load_mapping(ROOT / "lifts.csv")}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", type=Path, default=ROOT / "data" / "results.json")
@@ -842,7 +873,8 @@ def main():
                     args.data.parent / "strokes",
                     json.loads(gd.read_text()) if gd.exists() else {},
                     json.loads(ga.read_text()) if ga.exists() else [],
-                    json.loads(gi.read_text()) if (gi := args.data.parent / "garmin_indoor.json").exists() else [])
+                    json.loads(gi.read_text()) if (gi := args.data.parent / "garmin_indoor.json").exists() else [],
+                    load_hevy(args.data.parent))
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
@@ -889,6 +921,14 @@ def main():
     print("Drift, recent: date, min 10-50 (new), min 5-45 (old), whole piece:",
           [(r["date"], r["drift"], r.get("old"), r.get("whole")) for r in payload["drift"][-6:]])
     print(f"Garmin indoor dedupe: {payload['dedupe']}; Garmin-only types: {payload['indoor_counts']}")
+    L = payload["lifting"]
+    if L:
+        lw = L["weeks"][-4:]
+        print(f"Lifting: {len(L['sessions'])} sessions ({sum(s['prehab'] for s in L['sessions'])} prehab, {L['garmin']['unlogged']} unlogged Garmin); "
+              f"Garmin strength matched {L['garmin']['matched']}; series {', '.join(f'{k} ({len(v)})' for k, v in L['e1rm'].items())}")
+        print("  last 4 weeks lifts/prehab/sets:", [(w["week"], w["lifts"], w["prehab"], w["sets"]) for w in lw])
+        print("  unmapped (accessory, guessed pattern):", [(u["name"], u["pattern"], u["how"], u["n"]) for u in L["unmapped"]])
+        print("  heavy lower body before a hard row:", [(h["lift_date"], h["row_date"], h["row"], h["gap_h"]) for h in L["pre_hard"][-6:]])
     print(f"Session types before interval HR-first: {s['types_before']}")
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
           f"low-confidence {s['types_low']}")

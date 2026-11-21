@@ -98,7 +98,9 @@ def main():
         for a in batch:
             types[type_key(a)] = types.get(type_key(a), 0) + 1
             acts.append({"date": (a.get("startTimeLocal") or "")[:10], "type": type_key(a),
-                         "load": a.get("activityTrainingLoad"), "minutes": round((a.get("duration") or 0) / 60, 1)})
+                         "load": a.get("activityTrainingLoad"), "minutes": round((a.get("duration") or 0) / 60, 1),
+                         "start": (a.get("startTimeLocal") or "")[:16], "hr": pick(a, "averageHR", "averageHeartRate"),
+                         "name": a.get("activityName") or ""})
             if "indoor_row" in type_key(a).lower():
                 indoor.append({
                     "id": a.get("activityId"), "start": (a.get("startTimeLocal") or "")[:19],

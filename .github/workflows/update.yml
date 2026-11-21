@@ -98,6 +98,15 @@ jobs:
           if [ -z "$GARMIN_API_KEY" ]; then echo "Garmin not set up; skipping."; exit 0; fi
           python3 garmin.py
 
+      # Optional: skipped until HEVY_API_KEY is set (needs Hevy Pro). Never blocks the rowing dashboard.
+      - name: Pull Hevy lifting
+        continue-on-error: true
+        env:
+          HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
+        run: |
+          if [ -z "$HEVY_API_KEY" ]; then echo "Hevy not set up; skipping."; exit 0; fi
+          python3 hevy.py
+
       - name: Save stroke and FIT cache
         if: always()
         uses: actions/cache/save@v4
