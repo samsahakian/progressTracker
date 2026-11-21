@@ -17,6 +17,9 @@ BASE = os.environ.get("GARMIN_PERSONAL_API_BASE_URL", "https://personal.connecta
 TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 SEARCH_PATH = "/activitylist-service/activities/search/activities"
 OUT = Path(__file__).parent / "data" / "water.json"
+ACT_OUT = Path(__file__).parent / "data" / "garmin_activities.json"
+DAILY_OUT = Path(__file__).parent / "data" / "garmin_daily.json"
+DAILY_DAYS = 400  # history for resting HR, sleep and HRV
 PAGE = 100
 
 
@@ -83,13 +86,15 @@ def main():
     token = get_token(key)
     headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
 
-    rows, types, start, shown_fields = [], {}, 0, False
+    rows, types, start, shown_fields, acts = [], {}, 0, False, []
     while True:
         batch = json.loads(call("GET", SEARCH_PATH, headers, {"start": start, "limit": PAGE}) or "[]")
         if isinstance(batch, dict):  # tolerate a wrapped list
             batch = batch.get("activityList") or batch.get("activities") or []
         for a in batch:
             types[type_key(a)] = types.get(type_key(a), 0) + 1
+            acts.append({"date": (a.get("startTimeLocal") or "")[:10], "type": type_key(a),
+                         "load": a.get("activityTrainingLoad"), "minutes": round((a.get("duration") or 0) / 60, 1)})
             if not is_on_water(a):
                 continue
             if not shown_fields:  # field names only, no values: helps adapt if Garmin renames things
@@ -121,6 +126,95 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(rows, indent=1))
     print(f"Saved {len(rows)} on-water sessions to {OUT}")
+    acts.sort(key=lambda a: a["date"])
+    ACT_OUT.write_text(json.dumps(acts))
+    print(f"Saved {len(acts)} activities (date, type, training load) to {ACT_OUT}")
+    try:
+        daily(headers)
+    except SystemExit as e:  # wellness data is optional; never lose the rowing data over it
+        print(f"::warning::Garmin daily data skipped: {e}")
+
+
+def paths(obj, prefix=""):
+    """Key paths of a JSON object (no values), to log the shape of an unfamiliar response."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from paths(v, f"{prefix}.{k}" if prefix else k)
+    elif isinstance(obj, list) and obj:
+        yield from paths(obj[0], prefix + "[]")
+    else:
+        yield prefix
+
+
+def find(obj, *names):
+    """First numeric value under any key whose name matches one of names (case-insensitive, depth-first)."""
+    want = [n.lower() for n in names]
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k.lower() in want and isinstance(v, (int, float)) and v:
+                return v
+        for v in obj.values():
+            r = find(v, *names)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = find(v, *names)
+            if r is not None:
+                return r
+    return None
+
+
+def day_rows(resp):
+    rows = resp.get("data", resp) if isinstance(resp, dict) else resp
+    if isinstance(rows, dict):  # some endpoints wrap the list one level deeper
+        rows = next((v for v in rows.values() if isinstance(v, list)), [rows])
+    return rows or []
+
+
+def day_of(row):
+    for k in ("calendarDate", "date", "summaryDate"):
+        v = row.get(k) if isinstance(row, dict) else None
+        if isinstance(v, str):
+            return v[:10]
+        if isinstance(v, dict) and isinstance(v.get("date"), str):
+            return v["date"][:10]
+    return None
+
+
+def daily(headers):
+    """Resting HR, sleep and HRV per day, in 28-day chunks."""
+    from datetime import date, timedelta
+    end, out, shown = date.today(), {}, set()
+    sources = [
+        ("rhr", "/usersummary-service/v2/dailysummaries", "query",
+         ("restingHeartRate", "restingHR", "restingValue", "currentDayRestingHeartRate")),
+        ("sleep_s", "/sleep-service/sleep/dailySleepSummariesByDate", "query",
+         ("sleepTimeSeconds", "totalSleepTimeInSeconds", "sleepDurationInSeconds", "durationInSeconds", "totalSleepSeconds")),
+        ("hrv", "/hrv-service/hrv/daily", "path", ("lastNightAvg", "lastNight", "nightlyAvg", "weeklyAvg")),
+    ]
+    for field, path, style, names in sources:
+        got, d = 0, end - timedelta(days=DAILY_DAYS)
+        while d <= end:
+            e = min(d + timedelta(days=27), end)
+            if style == "query":
+                text = call("GET", path, headers, {"startDate": d.isoformat(), "endDate": e.isoformat()})
+            else:
+                text = call("GET", f"{path}/{d.isoformat()}/{e.isoformat()}", headers)
+            resp = json.loads(text or "null") or {}
+            for row in day_rows(resp):
+                if field not in shown and isinstance(row, dict):
+                    print(f"{field} response fields:", ", ".join(sorted(set(paths(row))))[:1500])
+                    shown.add(field)
+                day, val = day_of(row), find(row, *names)
+                if day and val is not None:
+                    out.setdefault(day, {})[field] = val
+                    got += 1
+            d = e + timedelta(days=1)
+            time.sleep(0.3)
+        print(f"Daily {field}: {got} days")
+    DAILY_OUT.write_text(json.dumps(dict(sorted(out.items()))))
+    print(f"Saved daily resting HR / sleep / HRV for {len(out)} days to {DAILY_OUT}")
 
 
 if __name__ == "__main__":
