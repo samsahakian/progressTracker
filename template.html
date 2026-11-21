@@ -53,6 +53,14 @@ h2 { font-size: 17px; margin: 0 0 2px; }
 .tile .k { color: var(--text-3); font-size: 12px; }
 .tile .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tile .d { color: var(--text-2); font-size: 12px; }
+.tile.na .v { color: var(--text-3); font-size: 18px; }
+.week { border-width: 1.5px; border-color: var(--text-3); }
+.flags { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.flags li { font-size: 14px; padding: 8px 10px; border-radius: 8px; background: var(--bg); border-left: 3px solid var(--text-3); }
+.flags li.warn { border-left-color: var(--s4); }
+.flags li.good { border-left-color: var(--s3); }
+.flags li b { font-weight: 600; }
+h3.totals { font-size: 13px; color: var(--text-3); font-weight: 500; margin: 18px 0 8px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; }
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; width: 100%; overflow: visible; }
@@ -82,6 +90,24 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 <main>
   <h1>Rowing Progress</h1>
   <p class="sub" id="meta"></p>
+
+  <section class="card week" id="thisWeek">
+    <h2>This week</h2>
+    <p class="sub" id="weekSub"></p>
+    <div class="tiles" id="weekTiles"></div>
+    <ul class="flags" id="flags"></ul>
+  </section>
+
+  <section class="card" id="goalCard">
+    <div class="row">
+      <div><h2>Goal pace</h2><p class="sub" id="goalSub"></p></div>
+      <div class="seg" id="goalPick"></div>
+    </div>
+    <div class="chart" id="goal"></div>
+    <div class="legend" id="goalLegend"></div>
+  </section>
+
+  <h3 class="totals">Totals</h3>
   <div class="tiles" id="tiles"></div>
 
   <div class="toolbar">
@@ -211,7 +237,7 @@ const tickLabel = (t, span) => new Date(t).toLocaleDateString(undefined,
 
 // ---------- generic chart ----------
 // series: [{ points:[{x,y,tip,pb}], color, line:bool, dots:bool, dotR, width }]
-function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yMin0, xDomain }) {
+function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yMin0, xDomain, events }) {
   container.innerHTML = "";
   const all = series.flatMap(s => s.points);
   if (!all.length) { container.innerHTML = '<div class="empty">No matching sessions in this range.</div>'; return; }
@@ -244,10 +270,15 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
       const x = X(p.x) + 1 + i * (bw + gap), y = Y(p.y);
       el("path", { d: `M${x},${H - m.b}V${y + r}Q${x},${y} ${x + r},${y}H${x + bw - r}Q${x + bw},${y} ${x + bw},${y + r}V${H - m.b}Z`, fill: s.color }, svg); }));
   }
+  (events || []).forEach(e => { if (e.x < x0 || e.x > x1) return;  // vertical event markers
+    const ex = X(e.x);
+    el("line", { x1: ex, x2: ex, y1: m.t + 12, y2: H - m.b, stroke: css("--text-3"), "stroke-dasharray": "2 3" }, svg);
+    el("text", { x: ex, y: m.t + 6, "text-anchor": ex > W - 60 ? "end" : "middle", fill: css("--text-3"), "font-size": 10 }, svg).textContent = e.label; });
   series.forEach(s => {
     if (s.line && s.points.length > 1)
       el("path", { d: s.points.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(""),
-        fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+        fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round", "stroke-linecap": "round",
+        ...(s.dash ? { "stroke-dasharray": s.dash } : {}) }, svg);
     if (s.dots) s.points.forEach(p => {
       el("circle", { cx: X(p.x), cy: Y(p.y), r: s.dotR || 4, fill: s.color, stroke: css("--surface"), "stroke-width": 2,
         "fill-opacity": s.opacity ?? 1 }, svg);
@@ -282,10 +313,102 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 
 // ---------- state ----------
 const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
-  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", view: "time", seasonSrc: "" };
+  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", view: "time", seasonSrc: "", goal: null };
 try { if (localStorage.getItem("view") === "season") state.view = "season"; } catch (e) {}
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
+
+// ---------- dates (viewer's local day) ----------
+const ymd = d => d.toLocaleDateString("en-CA");
+const TODAY = ymd(new Date());
+const addDays = (d, n) => { const x = new Date(d + "T12:00"); x.setDate(x.getDate() + n); return ymd(x); };
+const daysBetween = (a, b) => Math.round((new Date(b + "T12:00") - new Date(a + "T12:00")) / 864e5);
+const fmtDay = d => new Date(d + "T12:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+const EVENTS = () => (DATA.events || []).filter(e => inRange(e.date)).map(e => ({ x: t(e.date), label: e.label }));
+const metersOn = (d, sources) => { const v = DATA.daily[d]; return v ? sources.reduce((a, s) => a + (v[s] || 0), 0) : 0; };
+
+function goalStats(g) {
+  const N = daysBetween(g.start, g.end) + 1;
+  const status = TODAY < g.start ? "upcoming" : TODAY > g.end ? "done" : "active";
+  const last = TODAY > g.end ? g.end : TODAY, cum = [];
+  let erg = 0, water = 0;
+  for (let i = 0; i < N; i++) { const d = addDays(g.start, i); if (d > last) break;
+    erg += metersOn(d, ["erg"]); if (g.sources.includes("water")) water += metersOn(d, ["water"]);
+    cum.push({ date: d, erg, total: erg + water }); }
+  const done = erg + water;
+  const before = Math.max(0, Math.min(N, daysBetween(g.start, TODAY)));  // whole days before today
+  const required = g.target * before / N, daysLeft = status === "done" ? 0 : N - before;
+  return { N, status, done, erg, water, required, ahead: done - required, daysLeft,
+    perDay: daysLeft ? Math.max(0, (g.target - done) / daysLeft) : 0, basePerDay: g.target / N, cum };
+}
+function currentGoal() {
+  const gs = DATA.goals.map(g => ({ g, s: goalStats(g) }));
+  return gs.find(x => x.s.status === "active") || gs.filter(x => x.s.status === "upcoming").sort((a, b) => a.g.start < b.g.start ? -1 : 1)[0]
+    || gs[gs.length - 1];
+}
+const round100 = v => Math.round(v / 100) * 100;
+
+function renderThisWeek() {
+  const monday = addDays(TODAY, -((new Date(TODAY + "T12:00").getDay() + 6) % 7));
+  let erg = 0, water = 0;
+  for (let d = monday; d <= TODAY; d = addDays(d, 1)) { erg += metersOn(d, ["erg"]); water += metersOn(d, ["water"]); }
+  document.getElementById("weekSub").textContent = `${fmtDay(monday)} – today · data through ${fmtDay(DATA.summary.last || TODAY)}`;
+  const cg = currentGoal(), tiles = [], flags = [];
+  if (cg) { const { g, s } = cg;
+    if (s.status === "upcoming") {
+      const inDays = daysBetween(TODAY, g.start);
+      tiles.push([g.label, `Starts ${inDays === 1 ? "tomorrow" : new Date(g.start + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, `${fmtM(g.target)} in ${s.N} days · ${round100(s.basePerDay).toLocaleString()} m/day`]);
+      if (inDays <= 7) flags.push(["", `<b>${g.label} starts ${inDays === 1 ? "tomorrow" : fmtDay(g.start)}.</b> ${round100(s.basePerDay).toLocaleString()} m/day for ${s.N} days gets you to ${fmtM(g.target)}.`]);
+    } else if (s.status === "active") {
+      const ahead = Math.round(s.ahead), days = s.basePerDay ? Math.abs(ahead) / s.basePerDay : 0;
+      tiles.push([g.label, `${fmtM(s.done)} / ${fmtM(g.target)}`,
+        `${ahead >= 0 ? `${Math.abs(ahead).toLocaleString()} m ahead` : `${Math.abs(ahead).toLocaleString()} m behind`} · ${round100(s.perDay).toLocaleString()} m/day to finish`]);
+      if (ahead < -s.basePerDay) flags.push(["warn", `<b>Behind ${g.label} pace by ${Math.abs(ahead).toLocaleString()} m</b> (about ${days.toFixed(1)} days). Need ${round100(s.perDay).toLocaleString()} m/day for the last ${s.daysLeft} days.`]);
+      else flags.push(["good", `<b>On ${g.label} pace</b>: ${fmtM(s.done)} of ${fmtM(g.target)}, ${ahead >= 0 ? `${Math.abs(ahead).toLocaleString()} m ahead` : `${Math.abs(ahead).toLocaleString()} m behind`}. ${round100(s.perDay).toLocaleString()} m/day finishes it.`]);
+      const lastErg = Object.keys(DATA.daily).filter(d => DATA.daily[d].erg > 0).pop();
+      if (lastErg && daysBetween(lastErg, TODAY) >= 3) flags.push(["warn", `<b>No erg meters since ${fmtDay(lastErg)}.</b> Each missed day adds ${round100(s.perDay / Math.max(1, s.daysLeft - 1)).toLocaleString()} m to every remaining day.`]);
+    } else {
+      tiles.push([g.label, s.done >= g.target ? "Done" : "Ended", `${fmtM(s.done)} of ${fmtM(g.target)}`]);
+    }
+  }
+  tiles.push(["Meters this week", fmtM(erg), DATA.water.length ? `erg · ${fmtM(water)} on water` : "erg"]);
+  tiles.push(["% easy (Z1–Z2)", "Needs stream data", "time in zone needs per-stroke / FIT HR", "na"]);
+  tiles.push(["Resting HR, 7 days", "Needs Garmin daily data", `vs baseline ${DATA.athlete.resting_hr_baseline ?? "—"} bpm`, "na"]);
+  document.getElementById("weekTiles").innerHTML = tiles.map(([k, v, d, cls]) =>
+    `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
+  document.getElementById("flags").innerHTML = flags.slice(0, 3).map(([c, h]) => `<li class="${c}">${h}</li>`).join("");
+}
+
+function renderGoal() {
+  const g = DATA.goals.find(x => x.id === state.goal) || currentGoal()?.g;
+  const card = document.getElementById("goalCard");
+  if (!g) { card.hidden = true; return; }
+  const s = goalStats(g), node = document.getElementById("goal");
+  const DAY = 864e5, T0 = t(g.start) - DAY / 2, T1 = t(g.end) + DAY / 2, water = g.sources.includes("water");
+  const eod = d => t(d) + DAY / 2;  // meters are complete at the end of each day
+  const series = [{ points: [{ x: T0, y: 0 }, { x: T1, y: g.target }], color: css("--text-3"), line: true, width: 1.5, dash: "5 4", noHover: true,
+    endLabel: "Required" }];
+  if (s.cum.length) {
+    series.push({ color: css("--s1"), line: true, width: 2.5, points: [{ x: T0, y: 0, tip: "Start" }, ...s.cum.map(c => ({ x: eod(c.date), y: c.erg,
+      tip: `${fmtDay(c.date)}<br>Erg <b>${c.erg.toLocaleString()} m</b>${water ? `<br>Erg + water <b>${c.total.toLocaleString()} m</b>` : ""}` +
+        `<br>Required ${Math.round(g.target * (daysBetween(g.start, c.date) + 1) / s.N).toLocaleString()} m` }))] });
+    if (water) series.push({ color: css("--s2"), line: true, width: 2, noHover: true,
+      points: [{ x: T0, y: 0 }, ...s.cum.map(c => ({ x: eod(c.date), y: c.total }))] });
+  }
+  const step = s.N > 60 ? 28 : 7, ticks = [];
+  for (let i = 0; i < s.N; i += step) ticks.push(t(addDays(g.start, i)) - DAY / 2);
+  const today = TODAY >= g.start && TODAY <= g.end ? [{ x: t(TODAY) - DAY / 2, label: "Today" }] : [];
+  chart(node, { series, yFmt: fmtM, yMin0: true, xDomain: [T0, T1], events: today,
+    xLabel: { ticks, fmt: x => new Date(x + DAY / 2).toLocaleDateString(undefined, { month: "short", day: "numeric" }) } });
+  const scope = water ? "erg + on-water" : "erg only, catchup excluded (Concept2's challenge count)";
+  document.getElementById("goalSub").textContent = s.status === "upcoming"
+    ? `${fmtM(g.target)} m from ${fmtDay(g.start)} to ${fmtDay(g.end)}, ${scope}. Starts in ${daysBetween(TODAY, g.start)} days: ${round100(s.basePerDay).toLocaleString()} m/day.`
+    : `${fmtM(s.done)} of ${fmtM(g.target)} m, ${scope}. ${s.status === "active"
+      ? `${s.ahead >= 0 ? "Ahead" : "Behind"} by ${Math.abs(Math.round(s.ahead)).toLocaleString()} m; ${round100(s.perDay).toLocaleString()} m/day for the remaining ${s.daysLeft} days.` : "Finished."}`;
+  document.getElementById("goalLegend").innerHTML = '<span><i style="background:var(--s1)"></i>Erg</span>' +
+    (water ? '<span><i style="background:var(--s2)"></i>Erg + water</span>' : "") +
+    '<span><i style="background:var(--text-3)"></i>Required pace (dashed)</span>';
+}
 
 function renderTiles() {
   const s = DATA.summary, cur = DATA.seasons[DATA.seasons.length - 1];
@@ -324,7 +447,7 @@ function renderWeekly() {
     (hasWater ? `<br>Water <b>${w.water.toLocaleString()} m</b>` : "");
   const series = [{ points: weeks.map(w => ({ x: t(w.week), y: w.meters, tip: tip(w) })), color: css("--s1") }];
   if (hasWater) series.push({ points: weeks.map(w => ({ x: t(w.week), y: w.water })), color: css("--s2"), noHover: true });
-  chart(document.getElementById("weekly"), { series, yFmt: fmtM, bars: true });
+  chart(document.getElementById("weekly"), { series, yFmt: fmtM, bars: true, events: EVENTS() });
   document.getElementById("weeklySub").textContent = hasWater
     ? "Erg and on-water meters side by side, Monday–Sunday. Kept separate, not added together."
     : "Every rower session, summed Monday–Sunday.";
@@ -350,7 +473,7 @@ function renderWater() {
     document.getElementById("waterLegend").innerHTML = seasonLegend(labels);
   } else {
   document.getElementById("waterLegend").innerHTML = TREND_LEGEND("s2");
-  chart(document.getElementById("water"), { invert: M === "split", yFmt: fmt, series: [
+  chart(document.getElementById("water"), { invert: M === "split", yFmt: fmt, events: EVENTS(), series: [
     { points: shown.map(r => ({ x: t(r.date), y: r[M],
       tip: `${fmtDate(r.date)} · ${r.name}<br><b>${fmtM(r.meters)} m</b> · ${fmtTime(r.seconds)} · ${fmtSplit(r.split)}` +
         `${r.rate ? ` · r${r.rate}` : ""}${r.dps ? ` · ${r.dps} m/stroke` : ""}${r.hr ? ` · ${r.hr} bpm` : ""}` })), color: css("--s2-soft"), dots: true, dotR: 3.5 },
@@ -440,7 +563,7 @@ function renderBench() {
       { yFmt: M.fmt, invert: M.invert, mode: "pieces" });
     document.getElementById("benchLegend").innerHTML = seasonLegend(labels);
   } else {
-    chart(node, { series: [{ points: pts, color: css("--s1"), line: true, dots: true }], yFmt: M.fmt, invert: M.invert });
+    chart(node, { series: [{ points: pts, color: css("--s1"), line: true, dots: true }], yFmt: M.fmt, invert: M.invert, events: EVENTS() });
     document.getElementById("benchLegend").innerHTML = BENCH_LEGEND;
   }
   const best = b.rows.reduce((a, r) => !a || r.split < a.split ? r : a, null);
@@ -490,12 +613,12 @@ function renderSteady() {
     return;
   }
   document.getElementById("ssLegend").innerHTML = TREND_LEGEND("s1");
-  chart(document.getElementById("steady"), { series: [
+  chart(document.getElementById("steady"), { events: EVENTS(), series: [
     { points: dots, color: css("--s1-soft"), dots: true, dotR: 3.5 },
     { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: fmt, invert: false });
 }
 
-function renderAll() { renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
+function renderAll() { renderThisWeek(); renderGoal(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -514,6 +637,9 @@ function applyView() {  // range only applies to the timeline
 }
 seg("view", "view", () => { applyView(); renderAll(); });
 seg("seasonSrc", "seasonSrc", renderSeasons);
+document.getElementById("goalPick").innerHTML = DATA.goals.map(g =>
+  `<button data-v="${g.id}" aria-pressed="${g.id === currentGoal()?.g.id}">${g.label}</button>`).join("");
+seg("goalPick", "goal", renderGoal);
 seg("waterMetric", "waterMetric", renderWater);
 seg("logKind", "logKind", renderLog);
 seg("metric", "metric", renderBench);

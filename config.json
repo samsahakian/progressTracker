@@ -1,12 +1,40 @@
 {
   "_help": "Rules for spotting benchmark pieces. A result matches when it is a single piece (not intervals) of the given distance (meters) or time (minutes, within 5 s). max_rate/min_rate check the average stroke rate. min_effort requires watts at least that multiple of your median easy-piece watts over the prior 60 days (keeps 30-min UT2 rows out of the 30r20 list). Tag a logbook comment with #<id> (e.g. #30r20) to force a match, or #notest to exclude a piece.",
   "benchmarks": [
-    { "id": "30r20", "label": "30r20",       "minutes": 30, "min_rate": 19, "max_rate": 21, "min_effort": 1.12 },
-    { "id": "1k",    "label": "1k",          "meters": 1000 },
-    { "id": "2k",    "label": "2k",          "meters": 2000 },
-    { "id": "5k",    "label": "5k",          "meters": 5000 },
-    { "id": "6k",    "label": "6k",          "meters": 6000 },
-    { "id": "30min", "label": "30 min test", "minutes": 30, "min_rate": 22 }
+    {
+      "id": "30r20",
+      "label": "30r20",
+      "minutes": 30,
+      "min_rate": 19,
+      "max_rate": 21,
+      "min_effort": 1.12
+    },
+    {
+      "id": "1k",
+      "label": "1k",
+      "meters": 1000
+    },
+    {
+      "id": "2k",
+      "label": "2k",
+      "meters": 2000
+    },
+    {
+      "id": "5k",
+      "label": "5k",
+      "meters": 5000
+    },
+    {
+      "id": "6k",
+      "label": "6k",
+      "meters": 6000
+    },
+    {
+      "id": "30min",
+      "label": "30 min test",
+      "minutes": 30,
+      "min_rate": 22
+    }
   ],
   "steady_state": {
     "_help": "Pieces used for the W/HR efficiency trend: continuous, at least min_minutes long, at or under max_rate, with heart rate recorded.",
@@ -14,8 +42,98 @@
     "max_rate": 22,
     "rolling_sessions": 5,
     "_windows_help": "The chart can measure just the first N minutes of each piece (from its splits), so long and short pieces compare fairly. default_window picks the starting view.",
-    "windows": [40, 60, 65, 70, 75, 80],
+    "windows": [
+      40,
+      60,
+      65,
+      70,
+      75,
+      80
+    ],
     "default_window": 60
   },
-  "season_start_month": 5
+  "season_start_month": 5,
+  "timezone": "America/Chicago",
+  "athlete": {
+    "_help": "Coach's reference values. Zones are upper bounds in bpm; the last zone is everything above.",
+    "lthr": 167,
+    "max_hr": 180,
+    "resting_hr_baseline": 40,
+    "zones": [
+      [
+        "Z1",
+        141
+      ],
+      [
+        "Z2",
+        149
+      ],
+      [
+        "Z3",
+        158
+      ],
+      [
+        "Z4",
+        166
+      ],
+      [
+        "Z5a",
+        170
+      ],
+      [
+        "Z5b",
+        177
+      ],
+      [
+        "Z5c",
+        999
+      ]
+    ],
+    "easy_zones": [
+      "Z1",
+      "Z2"
+    ],
+    "moderate_zones": [
+      "Z3"
+    ],
+    "steady_pace_band": [
+      "2:08",
+      "2:12"
+    ]
+  },
+  "goals": [
+    {
+      "id": "hc2026",
+      "label": "Holiday Challenge",
+      "start": "2026-11-26",
+      "end": "2026-12-24",
+      "target": 200000,
+      "sources": [
+        "erg"
+      ],
+      "_note": "Erg only, no catchup, like Concept2's own count."
+    },
+    {
+      "id": "mm2027",
+      "label": "1,000,000 m",
+      "start": "2027-01-01",
+      "end": "2027-04-30",
+      "target": 1000000,
+      "sources": [
+        "erg",
+        "water"
+      ],
+      "_note": "Scope pending Sam; default erg + water."
+    }
+  ],
+  "events": [
+    {
+      "date": "2026-10-17",
+      "label": "HOCR"
+    },
+    {
+      "date": "2026-11-11",
+      "label": "Cut ended"
+    }
+  ]
 }

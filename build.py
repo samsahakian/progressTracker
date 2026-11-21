@@ -9,6 +9,7 @@ import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).parent
 INTERVAL_TYPES = {"FixedDistanceInterval", "FixedTimeInterval", "FixedCalorieInterval",
@@ -262,8 +263,21 @@ def build(results, cfg, manual_catchup=(), water=()):
 
     total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
     strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits")}
+    # Daily meters for goal pacing. Erg = Logbook timed results only (no catchup), like
+    # Concept2's challenge count; water = Garmin outdoor rowing.
+    daily = defaultdict(lambda: {"erg": 0, "water": 0})
+    for w in workouts:
+        daily[w["date"]]["erg"] += w["meters"]
+    for w in water:
+        daily[w["date"]]["water"] += w["meters"]
+
+    tz = ZoneInfo(cfg.get("timezone", "America/Chicago"))
     return {
-        "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "generated": datetime.now(tz).strftime("%Y-%m-%d %H:%M"),
+        "daily": dict(sorted(daily.items())),
+        "goals": cfg.get("goals", []),
+        "events": cfg.get("events", []),
+        "athlete": cfg.get("athlete", {}),
         "summary": {
             "total_meters": total_m,
             "workouts": len(workouts),
