@@ -29,10 +29,12 @@ To try it without a token: `python3 tools/make_sample.py && python3 build.py --d
 Uses a Concept2 API key (client ID + secret, platform "Other",
 callback `http://localhost:8080/callback`, no webhook).
 
-1. **Repo secrets** (Settings → Secrets and variables → Actions):
-   - `C2_CLIENT_ID`, `C2_CLIENT_SECRET` — from the Concept2 API key
-   - `GH_PAT` — a fine-grained GitHub token, this repo only, permission **Secrets: Read and write**.
-     The workflows use it to save Concept2's rotating refresh token back into `C2_REFRESH_TOKEN`.
+1. **Repo secrets** (Settings → Secrets and variables → Actions): `C2_CLIENT_ID` and
+   `C2_CLIENT_SECRET`, from the Concept2 API key.
+
+   Concept2 issues a new refresh token every time one is used. The workflows keep it on the
+   `c2-state` branch, AES-256 encrypted with `C2_CLIENT_SECRET` as the key, so nothing usable is
+   stored in the repo. Don't delete that branch.
 2. **Approve access once**: open this in a browser (put in your client ID), approve, and copy the
    `localhost:8080/callback?code=…` address you land on (the page itself won't load — that's fine):
 

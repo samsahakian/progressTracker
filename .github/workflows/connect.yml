@@ -1,15 +1,19 @@
 name: Connect Concept2
 
-# One-time setup: run this with the code from the Concept2 approval redirect.
+# One-time setup: run this with the address you land on after approving access on Concept2.
 on:
   workflow_dispatch:
     inputs:
       code:
-        description: "The code= value (or the whole localhost URL) from the address bar after approving"
+        description: "The whole localhost:8080/callback?code=... address from the address bar"
         required: true
 
 permissions:
-  contents: read
+  contents: write   # to save the encrypted token on the c2-state branch
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   connect:
@@ -22,10 +26,9 @@ jobs:
           C2_CLIENT_ID: ${{ secrets.C2_CLIENT_ID }}
           C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
           CODE: ${{ inputs.code }}
-          GH_TOKEN: ${{ secrets.GH_PAT }}
           OUT_DIR: ${{ runner.temp }}
         run: |
           python3 c2auth.py exchange "$CODE"
-          gh secret set C2_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < "$OUT_DIR/refresh_token"
+          bash tools/token_state.sh save "$OUT_DIR/refresh_token"
           rm -f "$OUT_DIR/access_token" "$OUT_DIR/refresh_token"
           echo "Connected. Now run the 'Update dashboard' workflow."
