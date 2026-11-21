@@ -53,8 +53,8 @@ def fetch_all(token, machine, since=None):
     while url:
         page = get(url, token)
         results.extend(page.get("data", []))
-        links = page.get("meta", {}).get("pagination", {}).get("links", {})
-        url = links.get("next")
+        links = (page.get("meta") or {}).get("pagination", {}).get("links") or {}
+        url = links.get("next") if isinstance(links, dict) else None  # [] on a single page
         print(f"  fetched {len(results)} results…", file=sys.stderr)
         if url:
             time.sleep(0.5)  # be polite to Concept2
