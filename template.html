@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Erg Progress</title>
+<title>Rowing Progress</title>
 <style>
 :root {
   color-scheme: light;
@@ -15,7 +15,7 @@
   --text-2: #52514e;
   --text-3: #7c7b76;
   --s1: #2a78d6; --s1-soft: #9ec5f4;
-  --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s2: #eb6834; --s2-soft: #f4b393; --s3: #1baf7a; --s4: #eda100;
   --pb: #0b0b0b;
 }
 @media (prefers-color-scheme: dark) {
@@ -24,7 +24,7 @@
     --bg: #111110; --surface: #1a1a19; --border: #2c2c2a; --grid: #252523;
     --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
     --s1: #6da7ec; --s1-soft: #1c5cab;
-    --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s2: #d95926; --s2-soft: #8a3a18; --s3: #199e70; --s4: #c98500;
     --pb: #f0efec;
   }
 }
@@ -33,7 +33,7 @@
   --bg: #111110; --surface: #1a1a19; --border: #2c2c2a; --grid: #252523;
   --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
   --s1: #6da7ec; --s1-soft: #1c5cab;
-  --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s2: #d95926; --s2-soft: #8a3a18; --s3: #199e70; --s4: #c98500;
   --pb: #f0efec;
 }
 * { box-sizing: border-box; }
@@ -80,7 +80,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 </head>
 <body>
 <main>
-  <h1>Erg Progress</h1>
+  <h1>Rowing Progress</h1>
   <p class="sub" id="meta"></p>
   <div class="tiles" id="tiles"></div>
 
@@ -94,8 +94,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 
   <section class="card">
     <h2>Meters per week</h2>
-    <p class="sub">Every rower session, summed Monday–Sunday.</p>
+    <p class="sub" id="weeklySub">Every rower session, summed Monday–Sunday.</p>
     <div class="chart" id="weekly"></div>
+    <div class="legend" id="weeklyLegend"></div>
   </section>
 
   <section class="card">
@@ -134,6 +135,25 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     </div>
     <div class="chart" id="steady"></div>
     <div class="legend"><span><i style="background:var(--s1-soft)"></i>Session</span><span><i style="background:var(--s1)"></i>Rolling average</span></div>
+  </section>
+
+  <section class="card" id="waterCard" hidden>
+    <h2>On the water</h2>
+    <p class="sub" id="waterSub"></p>
+    <div class="seg" id="waterMetric" style="margin-bottom:10px">
+      <button data-v="hr" aria-pressed="true">HR</button><button data-v="rate">Rate</button>
+      <button data-v="split">Split</button><button data-v="meters">Meters</button>
+    </div>
+    <div class="chart" id="water"></div>
+    <div class="legend"><span><i style="background:var(--s2-soft)"></i>Session</span><span><i style="background:var(--s2)"></i>Rolling average</span></div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <div><h2>Session log</h2><p class="sub" id="logSub">Every erg and on-water session, newest first.</p></div>
+      <div class="seg" id="logKind"><button data-v="all" aria-pressed="true">All</button><button data-v="Erg">Erg</button><button data-v="Water">Water</button></div>
+    </div>
+    <div class="tablewrap" style="max-height:420px"><table id="logTable"></table></div>
   </section>
 
   <footer id="foot"></footer>
@@ -210,11 +230,13 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
   xt.forEach(t => { el("text", { x: X(t), y: H - 6, "text-anchor": "middle" }, ax).textContent =
     xLabel ? xLabel.fmt(t) : tickLabel(t, x1 - x0); });
 
-  if (bars) {
-    const s = series[0], bw = Math.max(1, (W - m.l - m.r) / ((x1 - x0) / (7 * 864e5)) - 2);
-    s.points.forEach(p => { if (!p.y) return; const h = H - m.b - Y(p.y), r = Math.min(4, bw / 2, h);
-      const x = X(p.x) + 1, y = Y(p.y);
-      el("path", { d: `M${x},${H - m.b}V${y + r}Q${x},${y} ${x + r},${y}H${x + bw - r}Q${x + bw},${y} ${x + bw},${y + r}V${H - m.b}Z`, fill: s.color }, svg); });
+  if (bars) {  // one bar per series per week, side by side (not stacked)
+    const n = series.length, group = Math.max(1, (W - m.l - m.r) / ((x1 - x0) / (7 * 864e5)) - 2);
+    const gap = n > 1 && group > 6 ? 1 : 0, bw = Math.max(0.5, (group - gap * (n - 1)) / n);
+    series.forEach((s, i) => s.points.forEach(p => { if (!p.y) return;
+      const h = H - m.b - Y(p.y), r = Math.min(4, bw / 2, h);
+      const x = X(p.x) + 1 + i * (bw + gap), y = Y(p.y);
+      el("path", { d: `M${x},${H - m.b}V${y + r}Q${x},${y} ${x + r},${y}H${x + bw - r}Q${x + bw},${y} ${x + bw},${y + r}V${H - m.b}Z`, fill: s.color }, svg); }));
   }
   series.forEach(s => {
     if (s.line && s.points.length > 1)
@@ -251,7 +273,7 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 
 // ---------- state ----------
 const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
-  ssLo: null, ssHi: null, ssMetric: "w_hr" };
+  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all" };
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
 
@@ -264,7 +286,9 @@ function renderTiles() {
       ? `incl. ${fmtM(s.catchup_meters)} catchup · ${s.workouts} sessions`
       : `${s.workouts} sessions since ${s.first ? fmtDate(s.first) : "—"}`],
     ["This season", cur ? fmtM(cur.total) : "—", cur ? cur.season : ""],
-    ["Last 4 weeks", fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.meters, 0)), "meters"],
+    ["Last 4 weeks", fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.meters, 0)),
+      DATA.water.length ? `erg · ${fmtM(DATA.weeks.slice(-4).reduce((a, w) => a + w.water, 0))} on water` : "meters"],
+    ...(DATA.water.length ? [["On the water", fmtM(s.water_year), `${new Date().getFullYear()} · ${fmtM(s.water_meters)} all time`]] : []),
     [DATA.steady_cfg.default === "all" ? "W/HR (rolling)" : `W/HR, first ${DATA.steady_cfg.default} min`, lastSS ? lastSS.w_hr_avg.toFixed(2) : "—",
       lastSS && prevSS ? `${lastSS.w_hr_avg >= prevSS.w_hr_avg ? "▲" : "▼"} from ${prevSS.w_hr_avg.toFixed(2)} 3 mo ago` : "need HR data"],
   ];
@@ -273,9 +297,51 @@ function renderTiles() {
 }
 
 function renderWeekly() {
-  const pts = DATA.weeks.filter(w => inRange(w.week)).map(w => ({ x: t(w.week), y: w.meters,
-    tip: `Week of ${fmtDate(w.week)}<br><b>${w.meters.toLocaleString()} m</b>` }));
-  chart(document.getElementById("weekly"), { series: [{ points: pts, color: css("--s1") }], yFmt: fmtM, bars: true });
+  const hasWater = DATA.water.length > 0;
+  const weeks = DATA.weeks.filter(w => inRange(w.week));
+  const tip = w => `Week of ${fmtDate(w.week)}<br>Erg <b>${w.meters.toLocaleString()} m</b>` +
+    (hasWater ? `<br>Water <b>${w.water.toLocaleString()} m</b>` : "");
+  const series = [{ points: weeks.map(w => ({ x: t(w.week), y: w.meters, tip: tip(w) })), color: css("--s1") }];
+  if (hasWater) series.push({ points: weeks.map(w => ({ x: t(w.week), y: w.water })), color: css("--s2"), noHover: true });
+  chart(document.getElementById("weekly"), { series, yFmt: fmtM, bars: true });
+  document.getElementById("weeklySub").textContent = hasWater
+    ? "Erg and on-water meters side by side, Monday–Sunday. Kept separate, not added together."
+    : "Every rower session, summed Monday–Sunday.";
+  document.getElementById("weeklyLegend").innerHTML = hasWater
+    ? '<span><i style="background:var(--s1)"></i>Erg</span><span><i style="background:var(--s2)"></i>Water</span>' : "";
+}
+
+function renderWater() {
+  const card = document.getElementById("waterCard");
+  if (!DATA.water.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const M = state.waterMetric;
+  const rows = DATA.water.filter(r => r[M] != null);
+  const n = DATA.steady_cfg.rolling;
+  const avg = rows.map((r, i) => { const w = rows.slice(Math.max(0, i - n + 1), i + 1);
+    return { x: t(r.date), y: w.reduce((a, x) => a + x[M], 0) / w.length, d: r.date }; }).filter(p => inRange(p.d));
+  const shown = rows.filter(r => inRange(r.date));
+  const fmt = { hr: v => Math.round(v) + " bpm", rate: v => v.toFixed(1) + " spm", split: fmtSplit, meters: fmtM }[M];
+  chart(document.getElementById("water"), { invert: M === "split", yFmt: fmt, series: [
+    { points: shown.map(r => ({ x: t(r.date), y: r[M],
+      tip: `${fmtDate(r.date)} · ${r.name}<br><b>${fmtM(r.meters)} m</b> · ${fmtTime(r.seconds)} · ${fmtSplit(r.split)}` +
+        `${r.rate ? ` · r${r.rate}` : ""}${r.hr ? ` · ${r.hr} bpm` : ""}` })), color: css("--s2-soft"), dots: true, dotR: 3.5 },
+    { points: avg, color: css("--s2"), line: true, width: 2.5, noHover: true }] });
+  const s = DATA.summary;
+  document.getElementById("waterSub").textContent = `${s.water_sessions} sessions from Strava, ${fmtM(s.water_meters)} m. ` +
+    "Whole-session averages, so warm-ups and paddling are included; split depends on wind and current, so HR and rate trend best.";
+}
+
+function renderLog() {
+  const k = state.logKind;
+  const rows = DATA.sessions.filter(r => (k === "all" || r.kind === k) && inRange(r.date)).reverse();
+  document.getElementById("logSub").textContent = `${rows.length} sessions, newest first.`;
+  document.getElementById("logTable").innerHTML =
+    `<thead><tr><th>Date</th><th style="text-align:left">Type</th><th style="text-align:left">Session</th><th>Meters</th><th>Time</th><th>Split</th><th>Rate</th><th>HR</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${fmtDate(r.date)}</td><td style="text-align:left">${r.kind}</td>` +
+      `<td style="text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis">${(r.name || "").replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;")}</td>` +
+      `<td>${r.meters.toLocaleString()}</td><td>${fmtTime(r.seconds)}</td><td>${fmtSplit(r.split)}</td>` +
+      `<td>${r.rate ?? "—"}</td><td>${r.hr ? Math.round(r.hr) : "—"}</td></tr>`).join("") + "</tbody>";
 }
 
 function renderSeasons() {
@@ -345,7 +411,7 @@ function renderSteady() {
     { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: fmt, invert: false });
 }
 
-function renderAll() { renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); }
+function renderAll() { renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -354,7 +420,9 @@ function seg(id, key, after) {
     box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
     state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
 }
-seg("range", "range", () => { renderWeekly(); renderBench(); renderSteady(); });
+seg("range", "range", () => { renderWeekly(); renderBench(); renderSteady(); renderWater(); renderLog(); });
+seg("waterMetric", "waterMetric", renderWater);
+seg("logKind", "logKind", renderLog);
 seg("metric", "metric", renderBench);
 document.getElementById("ssWin").innerHTML = DATA.steady_cfg.windows.map(n =>
   `<button data-v="${n}" aria-pressed="${String(n) === DATA.steady_cfg.default}">${n}m</button>`).join("") +
@@ -384,7 +452,7 @@ pick.innerHTML = DATA.benchmarks.map(b => `<option value="${b.id}">${b.label} ($
 pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
 
 document.getElementById("meta").textContent = DATA.summary.last
-  ? `${fmtDate(DATA.summary.first)} – ${fmtDate(DATA.summary.last)} · Concept2 Logbook` : "No workouts yet.";
+  ? `${fmtDate(DATA.summary.first)} – ${fmtDate(DATA.summary.last)} · Concept2 Logbook${DATA.water.length ? " + Strava" : ""}` : "No workouts yet.";
 document.getElementById("foot").textContent = `Built ${DATA.generated}. Watts from split using Concept2's formula; W/HR uses average heart rate.`;
 renderAll();
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderAll, 150); });

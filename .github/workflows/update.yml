@@ -41,6 +41,26 @@ jobs:
           C2_TOKEN="$(cat "$OUT_DIR/access_token")" python3 sync.py
           rm -f "$OUT_DIR/access_token"
 
+      # Optional: skipped until Strava is connected. A Strava problem never blocks the erg dashboard.
+      - name: Pull Strava on-water sessions
+        continue-on-error: true
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
+          OUT_DIR: ${{ runner.temp }}
+        run: |
+          if [ -z "$STRAVA_CLIENT_ID" ]; then echo "Strava not set up; skipping."; exit 0; fi
+          if ! STRAVA_REFRESH_TOKEN="$(bash tools/token_state.sh load strava)"; then
+            echo "::warning::Strava secrets are set but not connected yet. Run 'Connect Strava'."; exit 0
+          fi
+          echo "::add-mask::$STRAVA_REFRESH_TOKEN"
+          STRAVA_REFRESH_TOKEN="$STRAVA_REFRESH_TOKEN" python3 strava.py refresh
+          bash tools/token_state.sh save "$OUT_DIR/strava_refresh_token" strava
+          rm -f "$OUT_DIR/strava_refresh_token"
+          STRAVA_TOKEN="$(cat "$OUT_DIR/strava_access_token")" python3 strava.py sync
+          rm -f "$OUT_DIR/strava_access_token"
+
       - name: Build dashboard
         run: python3 build.py
 

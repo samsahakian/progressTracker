@@ -148,7 +148,24 @@ def load_catchup(path):
     return out
 
 
-def build(results, cfg, manual_catchup=()):
+def load_water(path):
+    """On-water sessions from data/strava.json (written by strava.py), if present."""
+    if not path.exists():
+        return []
+    out = []
+    for a in json.loads(path.read_text()):
+        if not a.get("meters") or not a.get("seconds"):
+            continue
+        split = a["seconds"] / a["meters"] * 500
+        out.append({"id": f"s{a['id']}", "date": a["date"][:10], "name": a.get("name", ""),
+                    "meters": a["meters"], "seconds": a["seconds"], "split": round(split, 1),
+                    "hr": round(a["hr"]) if a.get("hr") else None,
+                    "max_hr": round(a["max_hr"]) if a.get("max_hr") else None,
+                    "rate": round(a["rate"], 1) if a.get("rate") else None})
+    return out
+
+
+def build(results, cfg, manual_catchup=(), water=()):
     everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
     everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
@@ -191,6 +208,10 @@ def build(results, cfg, manual_catchup=()):
     # --- Volume ---
     start_month = cfg.get("season_start_month", 5)
     weekly = defaultdict(int)
+    weekly_water = defaultdict(int)
+    for w in water:
+        d = date.fromisoformat(w["date"])
+        weekly_water[(d - timedelta(days=d.weekday())).isoformat()] += w["meters"]
     seasons = defaultdict(lambda: defaultdict(int))
     # Catchup meters count toward lifetime and weekly meters but, as on the Logbook,
     # not toward season meters.
@@ -206,11 +227,13 @@ def build(results, cfg, manual_catchup=()):
 
     # fill empty weeks so gaps show as zero rather than being skipped
     weeks = []
-    if weekly:
-        cur = date.fromisoformat(min(weekly))
-        last = date.fromisoformat(max(weekly))
+    keys = set(weekly) | set(weekly_water)
+    if keys:
+        cur = date.fromisoformat(min(keys))
+        last = date.fromisoformat(max(keys))
         while cur <= last:
-            weeks.append({"week": cur.isoformat(), "meters": weekly.get(cur.isoformat(), 0)})
+            k = cur.isoformat()
+            weeks.append({"week": k, "meters": weekly.get(k, 0), "water": weekly_water.get(k, 0)})
             cur += timedelta(days=7)
 
     season_lines = []
@@ -230,10 +253,20 @@ def build(results, cfg, manual_catchup=()):
             "workouts": len(workouts),
             "catchup_entries": len(catchup),
             "catchup_meters": sum(w["meters"] for w in catchup),
+            "water_sessions": len(water),
+            "water_meters": sum(w["meters"] for w in water),
+            "water_year": sum(w["meters"] for w in water if w["date"][:4] == str(date.today().year)),
             "first": workouts[0]["date"] if workouts else None,
             "last": workouts[-1]["date"] if workouts else None,
         },
         "weeks": weeks,
+        "water": list(water),
+        "sessions": sorted(
+            [{"kind": "Erg", "date": w["date"], "name": w["workout_type"], "meters": w["meters"],
+              "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"]} for w in workouts] +
+            [{"kind": "Water", "date": w["date"], "name": w["name"], "meters": w["meters"],
+              "seconds": w["seconds"], "split": w["split"], "rate": w["rate"], "hr": w["hr"]} for w in water],
+            key=lambda r: r["date"]),
         "seasons": season_lines[-4:],  # last four seasons keeps the chart readable
         "benchmarks": [
             {"id": k, "label": v["label"], "rows": [strip(w) for w in v["rows"]]}
@@ -252,7 +285,8 @@ def main():
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config.json").read_text())
-    payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"))
+    water = load_water(args.data.parent / "strava.json")
+    payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"), water)
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
@@ -265,6 +299,7 @@ def main():
           f"{s['catchup_entries']} catchup/untimed entries ({s['catchup_meters']:,} m)")
     counts = {n: sum(str(n) in w["win"] for w in payload["steady"]) for n in payload["steady_cfg"]["windows"]}
     print("Steady-state pieces per first-N-minutes window:", counts)
+    print(f"On-water sessions: {s['water_sessions']} ({s['water_meters']:,} m)")
 
 
 if __name__ == "__main__":

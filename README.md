@@ -46,6 +46,24 @@ callback `http://localhost:8080/callback`, no webhook).
 
 If the daily run ever fails at "Refresh Concept2 token", redo steps 2–3.
 
+## Add on-water sessions from Strava (optional)
+
+Pulls outdoor rowing activities (e.g. from a Garmin watch) and shows them alongside the erg:
+separate weekly bars, an on-water HR/rate/split chart, and a combined session log. Erg and water
+meters are kept separate, never summed; season meters stay erg-only, matching Concept2.
+
+1. Create an API app at strava.com/settings/api (Authorization Callback Domain: `localhost`).
+2. Repo secrets: `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`.
+3. Approve access once (put in your client ID), then copy the `http://localhost/?…code=…` address you land on:
+
+   `https://www.strava.com/oauth/authorize?client_id=YOUR_CLIENT_ID&response_type=code&redirect_uri=http://localhost&approval_prompt=force&scope=activity:read_all`
+
+4. Within a few minutes: **Actions → Connect Strava → Run workflow**, paste that address.
+5. **Actions → Update dashboard → Run workflow.**
+
+Indoor sessions in Strava (no GPS, or marked trainer/virtual) are skipped, so erg pieces aren't counted twice.
+If Strava has a problem, the daily run still builds the erg dashboard and shows a warning.
+
 Workout data is never committed (data/ and site/ are git-ignored); it's fetched fresh on each run.
 **The Pages site itself is public**, though — anyone with the URL can see the dashboard. If that matters,
 skip Pages and run it locally instead.
