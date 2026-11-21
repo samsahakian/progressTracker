@@ -263,6 +263,8 @@ def main():
           f"{sum(len(b['rows']) for b in payload['benchmarks'])} benchmark pieces, "
           f"{len(payload['steady'])} steady-state sessions, "
           f"{s['catchup_entries']} catchup/untimed entries ({s['catchup_meters']:,} m)")
+    counts = {n: sum(str(n) in w["win"] for w in payload["steady"]) for n in payload["steady_cfg"]["windows"]}
+    print("Steady-state pieces per first-N-minutes window:", counts)
 
 
 if __name__ == "__main__":
