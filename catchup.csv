@@ -1,0 +1,16 @@
+# Catchup meters: the Concept2 API doesn't share these, so list them here.
+# They count toward lifetime and weekly meters, not season meters (matching Concept2),
+# and never toward pace, benchmarks or W/HR. Edit on github.com; the next run picks them up.
+date,meters,minutes,note
+2025-09-06,5458,20,
+2026-01-30,9302,40,
+2026-04-05,16849,72,
+2026-04-06,8824,35,
+2026-06-10,15270,65,
+2026-07-22,15306,65,
+2026-07-28,1091,40,
+2026-08-18,15330,65,
+2026-09-11,4706,20,
+2026-10-20,2344,10,
+2026-11-06,13953,60,
+2026-11-14,10000,40,

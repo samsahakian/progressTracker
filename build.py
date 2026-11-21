@@ -4,6 +4,7 @@
 Standard library only. Benchmark rules live in config.json.
 """
 import argparse
+import csv
 import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -94,8 +95,21 @@ def season_of(d, start_month):
     return d.year + 1 if d.month >= start_month else d.year
 
 
-def build(results, cfg):
-    everything = sorted((w for w in (parse(r) for r in results) if w), key=lambda w: w["date"])
+def load_catchup(path):
+    """Catchup meters listed by hand in catchup.csv (the API doesn't return them)."""
+    if not path.exists():
+        return []
+    lines = [l for l in path.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    out = []
+    for i, row in enumerate(csv.DictReader(lines)):
+        out.append({"id": f"catchup-{i}", "date": date.fromisoformat(row["date"].strip()).isoformat(),
+                    "meters": int(row["meters"].replace(",", "")), "seconds": 0, "volume_only": True})
+    return out
+
+
+def build(results, cfg, manual_catchup=()):
+    everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
+    everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
     catchup = [w for w in everything if w.get("volume_only")]
 
@@ -139,12 +153,14 @@ def build(results, cfg):
     start_month = cfg.get("season_start_month", 5)
     weekly = defaultdict(int)
     seasons = defaultdict(lambda: defaultdict(int))
-    # Catchup meters count toward lifetime meters but, as on the Logbook, not toward
-    # season meters, so weekly and season charts use timed workouts only.
-    for w in workouts:
+    # Catchup meters count toward lifetime and weekly meters but, as on the Logbook,
+    # not toward season meters.
+    for w in everything:
         d = date.fromisoformat(w["date"])
         monday = d - timedelta(days=d.weekday())
         weekly[monday.isoformat()] += w["meters"]
+        if w.get("volume_only"):
+            continue
         s = season_of(d, start_month)
         season_start = date(s - 1, start_month, 1)
         seasons[s][(d - season_start).days] += w["meters"]
@@ -195,7 +211,7 @@ def main():
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config.json").read_text())
-    payload = build(json.loads(args.data.read_text()), cfg)
+    payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"))
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
