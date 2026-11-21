@@ -107,6 +107,29 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="legend" id="goalLegend"></div>
   </section>
 
+  <section class="card">
+    <div class="row">
+      <div><h2>Aerobic efficiency</h2><p class="sub" id="effSub"></p></div>
+      <div class="seg" id="effMode"><button data-v="pace" aria-pressed="true">Pace at HR</button><button data-v="hr">HR at pace</button></div>
+    </div>
+    <div class="chart" id="eff"></div>
+    <div class="legend" id="effLegend"></div>
+  </section>
+
+  <section class="card">
+    <h2>Intensity distribution</h2>
+    <p class="sub" id="intSub"></p>
+    <div class="chart" id="int"></div>
+    <div class="legend" id="intLegend"></div>
+  </section>
+
+  <section class="card">
+    <h2>HR drift</h2>
+    <p class="sub" id="driftSub"></p>
+    <div class="chart" id="drift"></div>
+    <div class="legend" id="driftLegend"></div>
+  </section>
+
   <h3 class="totals">Totals</h3>
   <div class="tiles" id="tiles"></div>
 
@@ -318,7 +341,7 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 
 // ---------- state ----------
 const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
-  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", logType: "", view: "time", seasonSrc: "", goal: null };
+  ssLo: null, ssHi: null, ssMetric: "w_hr", waterMetric: "hr", logKind: "all", logType: "", view: "time", seasonSrc: "", goal: null, effMode: "pace" };
 try { if (localStorage.getItem("view") === "season") state.view = "season"; } catch (e) {}
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
@@ -377,11 +400,107 @@ function renderThisWeek() {
     }
   }
   tiles.push(["Meters this week", fmtM(erg), DATA.water.length ? `erg · ${fmtM(water)} on water` : "erg"]);
-  tiles.push(["% easy (Z1–Z2)", "Needs stream data", "time in zone needs per-stroke / FIT HR", "na"]);
+  const iw = DATA.intensity.find(x => x.week === monday), ip = iw && weekPct(iw), a = A();
+  if (ip) {
+    tiles.push(["% easy (Z1–Z2)", `${Math.round(ip.easy)}%`, `Z3 ${Math.round(ip.mod)}% · hard ${Math.round(ip.hard)}% · erg, ${Math.round(ip.tot / 60)} min`]);
+    if (ip.mod > (a.z3_flag_pct ?? 15)) flags.push(["warn", `<b>Z3 is ${Math.round(ip.mod)}% of erg time this week</b> (limit ${a.z3_flag_pct ?? 15}%). Keep steady pieces at or below ${a.efficiency_hr_band?.[1] ?? 149} bpm.`]);
+    else if (ip.easy < (a.easy_target_pct ?? 80) && ip.tot >= 60 * 60) flags.push(["warn", `<b>${Math.round(ip.easy)}% easy this week</b>, under the ${a.easy_target_pct ?? 80}% target.`]);
+  } else tiles.push(["% easy (Z1–Z2)", "—", DATA.strokes_coverage[0] ? "no erg HR this week yet" : "needs per-stroke HR", "na"]);
+  const wd = DATA.drift.filter(r => r.date >= monday && r.drift > (a.drift_flag_pct ?? 5));
+  if (wd.length) flags.push(["warn", `<b>HR drift ${wd.map(r => r.drift.toFixed(1) + "%").join(", ")}</b> on ${wd.length === 1 ? "a steady session" : "steady sessions"} this week (flag at ${a.drift_flag_pct ?? 5}%). Check fueling, heat and sleep, or ease the pace.`]);
   tiles.push(["Resting HR, 7 days", "Needs Garmin daily data", `vs baseline ${DATA.athlete.resting_hr_baseline ?? "—"} bpm`, "na"]);
   document.getElementById("weekTiles").innerHTML = tiles.map(([k, v, d, cls]) =>
     `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
   document.getElementById("flags").innerHTML = flags.slice(0, 3).map(([c, h]) => `<li class="${c}">${h}</li>`).join("");
+}
+
+// 4-week (28-day) rolling mean, by date, for rows sorted by date
+function rolling28(rows, key) {
+  return rows.map((r, i) => { let sum = 0, n = 0;
+    for (let j = i; j >= 0 && daysBetween(rows[j].date, r.date) < 28; j--) { sum += rows[j][key]; n++; }
+    return { x: t(r.date), y: sum / n, date: r.date }; });
+}
+const A = () => DATA.athlete || {};
+const bandTxt = b => `${fmtSplit(secsOf(b[0]))}–${fmtSplit(secsOf(b[1]))}`;
+const secsOf = mmss => { const [m, s] = String(mmss).split(":"); return +m * 60 + +s; };
+const needs = (node, what) => { node.innerHTML = `<div class="empty">Needs ${what}.</div>`; };
+
+function renderEfficiency() {
+  const node = document.getElementById("eff"), mode = state.effMode, a = A();
+  const [w0, w1] = a.efficiency_window_min || [5, 35], hb = a.efficiency_hr_band || [142, 149];
+  const pb = (a.steady_pace_band || ["2:08", "2:12"]).map(secsOf);
+  const all = DATA.efficiency;
+  const rows = mode === "pace" ? all.filter(r => r.hr >= hb[0] && r.hr <= hb[1] + 0.99) : all.filter(r => r.split >= pb[0] && r.split < pb[1] + 1);
+  const key = mode === "pace" ? "split" : "hr";
+  const fmt = mode === "pace" ? fmtSplit : v => Math.round(v) + " bpm";
+  document.getElementById("effSub").textContent = (mode === "pace"
+    ? `Average split over minutes ${w0}–${w1} of steady sessions whose HR in that window was ${hb[0]}–${hb[1]} bpm. Faster = fitter.`
+    : `Average HR over minutes ${w0}–${w1} of steady sessions whose split in that window was ${bandTxt(a.steady_pace_band || ["2:08", "2:12"])}. Lower = fitter.`) +
+    ` ${rows.length} sessions; line = 4-week rolling average.`;
+  if (!DATA.strokes_coverage[0]) return needs(node, "per-stroke data");
+  const tip = r => `${fmtDate(r.date)} · ${r.minutes} min piece<br><b>${fmtSplit(r.split)}</b> at <b>${Math.round(r.hr)} bpm</b> (min ${w0}–${w1})${r.rate ? ` · r${r.rate}` : ""}`;
+  if (state.view === "season") {
+    const labels = overlay(node, rows.map(r => ({ date: r.date, y: r[key], tip: tip(r) })), { yFmt: fmt, invert: mode === "pace" });
+    document.getElementById("effLegend").innerHTML = seasonLegend(labels);
+    return;
+  }
+  const shown = rows.filter(r => inRange(r.date)), roll = rolling28(rows, key).filter(p => inRange(p.date));
+  chart(node, { invert: mode === "pace", yFmt: fmt, events: EVENTS(), series: [
+    { points: shown.map(r => ({ x: t(r.date), y: r[key], tip: tip(r) })), color: css("--s1-soft"), dots: true, dotR: 3.5 },
+    { points: roll, color: css("--s1"), line: true, width: 2.5, noHover: true }] });
+  document.getElementById("effLegend").innerHTML = TREND_LEGEND("s1");
+}
+
+function weekPct(w) { const tot = w.easy + w.moderate + w.hard; return tot ? { easy: 100 * w.easy / tot, mod: 100 * w.moderate / tot, hard: 100 * w.hard / tot, tot } : null; }
+
+function renderIntensity() {
+  const node = document.getElementById("int"), a = A(), target = a.easy_target_pct ?? 80, z3 = a.z3_flag_pct ?? 15;
+  const rows = DATA.intensity.map(w => ({ ...w, p: weekPct(w) })).filter(w => w.p && w.p.tot >= 20 * 60);
+  document.getElementById("intSub").textContent = `Share of erg time per week in easy (Z1–Z2), Z3 and hard (Z4+) zones, from per-stroke HR. ` +
+    `Target ≥ ${target}% easy; weeks with Z3 over ${z3}% are flagged. Rest between intervals isn't recorded, so it isn't counted. On-water time needs Garmin FIT data.`;
+  if (!rows.length) return needs(node, "per-stroke HR data");
+  const tip = w => `Week of ${fmtDate(w.week)} · ${Math.round(w.p.tot / 60)} min with HR<br>Easy <b>${Math.round(w.p.easy)}%</b> · Z3 <b>${Math.round(w.p.mod)}%</b>` +
+    `${w.p.mod > z3 ? " ⚑" : ""} · Hard <b>${Math.round(w.p.hard)}%</b>`;
+  if (state.view === "season") {
+    const labels = overlay(node, rows.map(w => ({ date: w.week, y: w.p.easy, tip: tip(w) })), { yFmt: v => Math.round(v) + "%", mode: "line" });
+    document.getElementById("intLegend").innerHTML = seasonLegend(labels) + '<span style="color:var(--text-3)">% easy per week</span>';
+    return;
+  }
+  const shown = rows.filter(w => inRange(w.week));
+  if (!shown.length) return needs(node, "per-stroke HR data in this range");
+  const T0 = t(shown[0].week), T1 = t(shown[shown.length - 1].week);
+  chart(node, { yFmt: v => Math.round(v) + "%", events: EVENTS(), yMin0: true, series: [
+    { points: [{ x: T0, y: target }, { x: T1, y: target }], color: css("--s3"), line: true, width: 1, dash: "5 4", noHover: true },
+    { points: [{ x: T0, y: z3 }, { x: T1, y: z3 }], color: css("--s4"), line: true, width: 1, dash: "5 4", noHover: true },
+    { points: shown.map(w => ({ x: t(w.week), y: w.p.easy, tip: tip(w) })), color: css("--s3"), line: true, dots: true, dotR: 3 },
+    { points: shown.map(w => ({ x: t(w.week), y: w.p.mod, tip: tip(w), pb: w.p.mod > z3 })), color: css("--s4"), line: true, dots: true, dotR: 3 },
+    { points: shown.map(w => ({ x: t(w.week), y: w.p.hard, tip: tip(w) })), color: css("--s2"), line: true, dots: true, dotR: 2.5, width: 1.5 }] });
+  document.getElementById("intLegend").innerHTML = '<span><i style="background:var(--s3)"></i>Easy Z1–Z2</span>' +
+    '<span><i style="background:var(--s4)"></i>Z3</span><span><i style="background:var(--s2)"></i>Hard Z4+</span>' +
+    `<span><i class="ring"></i>Z3 over ${z3}%</span><span style="color:var(--text-3)">Dashed: ${target}% and ${z3}% lines</span>`;
+}
+
+function renderDrift() {
+  const node = document.getElementById("drift"), a = A(), flag = a.drift_flag_pct ?? 5;
+  const rows = DATA.drift;
+  document.getElementById("driftSub").textContent = `Aerobic decoupling on steady sessions of ${a.drift_min_minutes ?? 30}+ min: how much speed per heartbeat falls from ` +
+    `the first half to the second (after minute ${(a.efficiency_window_min || [5])[0]}). Positive = drift; over ${flag}% is flagged. ${rows.length} sessions.`;
+  if (!rows.length) return needs(node, "per-stroke HR data on steady sessions");
+  const tip = r => `${fmtDate(r.date)} · ${r.minutes} min<br>Drift <b>${r.drift.toFixed(1)}%</b><br>1st half ${fmtSplit(r.halves[0][0])} @ ${r.halves[0][1]} · ` +
+    `2nd half ${fmtSplit(r.halves[1][0])} @ ${r.halves[1][1]}`;
+  if (state.view === "season") {
+    const labels = overlay(node, rows.map(r => ({ date: r.date, y: r.drift, tip: tip(r) })), { yFmt: v => v.toFixed(0) + "%" });
+    document.getElementById("driftLegend").innerHTML = seasonLegend(labels);
+    return;
+  }
+  const shown = rows.filter(r => inRange(r.date));
+  if (!shown.length) return needs(node, "steady sessions in this range");
+  const T0 = t(shown[0].date), T1 = t(shown[shown.length - 1].date);
+  chart(node, { yFmt: v => v.toFixed(0) + "%", events: EVENTS(), series: [
+    { points: [{ x: T0, y: flag }, { x: T1, y: flag }], color: css("--s4"), line: true, width: 1, dash: "5 4", noHover: true },
+    { points: shown.map(r => ({ x: t(r.date), y: r.drift, tip: tip(r), pb: r.drift > flag })), color: css("--s1-soft"), dots: true, dotR: 3.5 },
+    { points: rolling28(rows, "drift").filter(p => inRange(p.date)), color: css("--s1"), line: true, width: 2.5, noHover: true }] });
+  document.getElementById("driftLegend").innerHTML = TREND_LEGEND("s1") + `<span><i class="ring"></i>Over ${flag}%</span>`;
 }
 
 function renderGoal() {
@@ -631,7 +750,7 @@ function renderSteady() {
     { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: fmt, invert: false });
 }
 
-function renderAll() { renderThisWeek(); renderGoal(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
+function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderDrift(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -640,7 +759,7 @@ function seg(id, key, after) {
     box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
     state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
 }
-seg("range", "range", () => { renderWeekly(); renderBench(); renderSteady(); renderWater(); renderLog(); });
+seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderDrift(); renderWeekly(); renderBench(); renderSteady(); renderWater(); renderLog(); });
 function applyView() {  // range only applies to the timeline
   const off = state.view === "season";
   for (const id of ["range", "rangeLbl"]) { const e = document.getElementById(id);
@@ -653,6 +772,7 @@ seg("seasonSrc", "seasonSrc", renderSeasons);
 document.getElementById("goalPick").innerHTML = DATA.goals.map(g =>
   `<button data-v="${g.id}" aria-pressed="${g.id === currentGoal()?.g.id}">${g.label}</button>`).join("");
 seg("goalPick", "goal", renderGoal);
+seg("effMode", "effMode", renderEfficiency);
 seg("waterMetric", "waterMetric", renderWater);
 seg("logKind", "logKind", renderLog);
 document.getElementById("logType").addEventListener("change", e => { state.logType = e.target.value; renderLog(); });

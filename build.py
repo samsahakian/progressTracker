@@ -145,6 +145,76 @@ def classify(w, rules):
     return "other", "inferred", hr is None
 
 
+def load_strokes(path):
+    """Cached [[t, d, hr], ...] for one result, with interval resets made continuous."""
+    if not path.exists():
+        return None
+    rows = json.loads(path.read_text())
+    out, t_off, d_off, pt, pd = [], 0.0, 0.0, 0.0, 0.0
+    for t, d, hr in rows:
+        if t < pt:  # next interval: Concept2 restarts time and distance
+            t_off += pt
+            d_off += pd
+        pt, pd = t, d
+        out.append((t + t_off, d + d_off, hr))
+    return out
+
+
+def zone_of(hr, zones):
+    for name, top in zones:
+        if hr <= top:
+            return name
+    return zones[-1][0]
+
+
+def window(strokes, t0, t1, min_valid):
+    """Speed (m/s), split and time-weighted HR between t0 and t1 seconds; None if HR covers < 90%."""
+    pts = [p for p in strokes if t0 <= p[0] <= t1]
+    if len(pts) < 10:
+        return None
+    dt_total = pts[-1][0] - pts[0][0]
+    dist = pts[-1][1] - pts[0][1]
+    if dt_total <= 0 or dist <= 0:
+        return None
+    hr_t = hr_sum = 0.0
+    for a, b in zip(pts, pts[1:]):
+        dt = b[0] - a[0]
+        if 0 < dt < 30 and b[2] >= min_valid:
+            hr_t += dt
+            hr_sum += b[2] * dt
+    if hr_t < 0.9 * dt_total:
+        return None
+    speed = dist / dt_total
+    return {"speed": speed, "split": 500 / speed, "hr": hr_sum / hr_t}
+
+
+def stroke_metrics(strokes, ath, min_valid):
+    """Time in zone, the efficiency window, and drift for one session's strokes."""
+    zones = ath["zones"]
+    zsec, nohr = defaultdict(float), 0.0
+    for a, b in zip(strokes, strokes[1:]):
+        dt = b[0] - a[0]
+        if not 0 < dt < 30:
+            continue
+        if b[2] >= min_valid:
+            zsec[zone_of(b[2], zones)] += dt
+        else:
+            nohr += dt
+    out = {"zones": {k: round(v) for k, v in zsec.items()}, "nohr": round(nohr)}
+    end = strokes[-1][0] if strokes else 0
+    w0, w1 = (m * 60 for m in ath.get("efficiency_window_min", [5, 35]))
+    if end >= w1 - 5:
+        out["win"] = window(strokes, w0, w1, min_valid)
+    if end >= ath.get("drift_min_minutes", 30) * 60:
+        mid = (w0 + end) / 2  # skip the first minutes, then compare halves
+        h1, h2 = window(strokes, w0, mid, min_valid), window(strokes, mid, end, min_valid)
+        if h1 and h2:
+            ef1, ef2 = h1["speed"] / h1["hr"], h2["speed"] / h2["hr"]
+            out["drift"] = round((ef1 - ef2) / ef1 * 100, 2)
+            out["halves"] = [[round(h1["split"], 1), round(h1["hr"])], [round(h2["split"], 1), round(h2["hr"])]]
+    return out
+
+
 def is_single_piece(w):
     return w["workout_type"] not in INTERVAL_TYPES
 
@@ -218,7 +288,7 @@ def load_water(path):
     return out
 
 
-def build(results, cfg, manual_catchup=(), water=()):
+def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None):
     everything = [w for w in (parse(r) for r in results) if w] + list(manual_catchup)
     everything.sort(key=lambda w: w["date"])
     workouts = [w for w in everything if not w.get("volume_only")]  # timed pieces only
@@ -228,6 +298,38 @@ def build(results, cfg, manual_catchup=(), water=()):
     type_counts = defaultdict(int)
     for w in workouts:
         type_counts[w["stype"]] += 1
+
+    # Per-stroke metrics (time in zone, efficiency window, drift) where stroke data is cached.
+    ath = cfg.get("athlete", {})
+    min_valid = (rules or {}).get("min_valid_hr", 100)
+    with_strokes = 0
+    for w in workouts:
+        st = load_strokes(strokes_dir / f"{w['id']}.json") if strokes_dir else None
+        w["sm"] = stroke_metrics(st, ath, min_valid) if st and ath.get("zones") else None
+        with_strokes += bool(w["sm"])
+
+    # Weekly intensity distribution (erg, from strokes)
+    easy_z, mod_z = set(ath.get("easy_zones", ["Z1", "Z2"])), set(ath.get("moderate_zones", ["Z3"]))
+    wk = defaultdict(lambda: {"easy": 0, "moderate": 0, "hard": 0, "nohr": 0, "sessions": 0, "zones": defaultdict(int)})
+    for w in workouts:
+        if not w["sm"]:
+            continue
+        d = date.fromisoformat(w["date"])
+        x = wk[(d - timedelta(days=d.weekday())).isoformat()]
+        x["sessions"] += 1
+        x["nohr"] += w["sm"]["nohr"]
+        for z, secs_ in w["sm"]["zones"].items():
+            x["zones"][z] += secs_
+            x["easy" if z in easy_z else "moderate" if z in mod_z else "hard"] += secs_
+    intensity = [{"week": k, **{kk: (dict(vv) if kk == "zones" else vv) for kk, vv in v.items()}} for k, v in sorted(wk.items())]
+
+    # Aerobic efficiency (steady only, fixed window) and drift (steady, long enough)
+    efficiency = [{"date": w["date"], "minutes": round(w["seconds"] / 60), "split": round(w["sm"]["win"]["split"], 1),
+                   "hr": round(w["sm"]["win"]["hr"], 1), "rate": w["rate"]}
+                  for w in workouts if w["stype"] == "steady" and w["sm"] and w["sm"].get("win")]
+    drift = [{"date": w["date"], "minutes": round(w["seconds"] / 60), "drift": w["sm"]["drift"], "halves": w["sm"]["halves"],
+              "split": w["split"], "hr": w["hr"]}
+             for w in workouts if w["stype"] == "steady" and w["sm"] and "drift" in w["sm"]]
     catchup = [w for w in everything if w.get("volume_only")]
 
     # --- Benchmarks (first matching rule wins, so 30r20 beats the 30-min test) ---
@@ -319,7 +421,7 @@ def build(results, cfg, manual_catchup=(), water=()):
         season_lines.append(line)
 
     total_m = sum(w["meters"] for w in everything)  # lifetime, incl. catchup
-    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits", "stype_low", "stype_src")}
+    strip = lambda w: {k: v for k, v in w.items() if k not in ("comments", "splits", "stype_low", "stype_src", "sm")}
     # Daily meters for goal pacing. Erg = Logbook timed results only (no catchup), like
     # Concept2's challenge count; water = Garmin outdoor rowing.
     daily = defaultdict(lambda: {"erg": 0, "water": 0})
@@ -333,6 +435,10 @@ def build(results, cfg, manual_catchup=(), water=()):
         "generated": datetime.now(tz).strftime("%Y-%m-%d %H:%M"),
         "daily": dict(sorted(daily.items())),
         "goals": cfg.get("goals", []),
+        "intensity": intensity,
+        "efficiency": efficiency,
+        "drift": drift,
+        "strokes_coverage": [with_strokes, len(workouts)],
         "events": cfg.get("events", []),
         "athlete": cfg.get("athlete", {}),
         "summary": {
@@ -378,7 +484,8 @@ def main():
 
     cfg = json.loads((ROOT / "config.json").read_text())
     water = load_water(args.data.parent / "water.json")
-    payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"), water)
+    payload = build(json.loads(args.data.read_text()), cfg, load_catchup(ROOT / "catchup.csv"), water,
+                    args.data.parent / "strokes")
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
@@ -392,6 +499,14 @@ def main():
     counts = {n: sum(str(n) in w["win"] for w in payload["steady"]) for n in payload["steady_cfg"]["windows"]}
     print("Steady-state pieces per first-N-minutes window:", counts)
     print(f"On-water sessions: {s['water_sessions']} ({s['water_meters']:,} m)")
+    cov = payload["strokes_coverage"]
+    print(f"Stroke data: {cov[0]}/{cov[1]} sessions; {len(payload['efficiency'])} steady sessions in the efficiency window, "
+          f"{len(payload['drift'])} with drift; {len(payload['intensity'])} weeks of zone data")
+    if payload["intensity"]:
+        last = payload["intensity"][-4:]
+        print("Last weeks easy/mod/hard/nohr (min):", [(x["week"], x["easy"] // 60, x["moderate"] // 60, x["hard"] // 60, x["nohr"] // 60) for x in last])
+    if payload["drift"]:
+        print("Recent drift %:", [(x["date"], x["drift"]) for x in payload["drift"][-6:]])
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
           f"low-confidence {s['types_low']}")
 

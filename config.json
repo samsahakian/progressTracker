@@ -99,7 +99,19 @@
     "steady_pace_band": [
       "2:08",
       "2:12"
-    ]
+    ],
+    "efficiency_hr_band": [
+      142,
+      149
+    ],
+    "efficiency_window_min": [
+      5,
+      35
+    ],
+    "drift_min_minutes": 30,
+    "drift_flag_pct": 5,
+    "easy_target_pct": 80,
+    "z3_flag_pct": 15
   },
   "goals": [
     {
