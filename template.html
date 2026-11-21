@@ -125,7 +125,13 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
   <section class="card">
     <h2>Steady-state efficiency</h2>
     <p class="sub" id="ssSub"></p>
-    <div class="toolbar" style="margin:0 0 10px"><span class="sub" style="margin:0">First</span><div class="seg" id="ssWin"></div></div>
+    <div class="toolbar" style="margin:0 0 8px"><span class="sub" style="margin:0">First</span><div class="seg" id="ssWin"></div></div>
+    <div class="toolbar" style="margin:0 0 10px">
+      <span class="sub" style="margin:0">Split</span>
+      <select id="ssLo" aria-label="Fastest split"></select><span class="sub" style="margin:0">to</span>
+      <select id="ssHi" aria-label="Slowest split"></select>
+      <div class="seg" id="ssMetric"><button data-v="w_hr" aria-pressed="true">W/HR</button><button data-v="hr">HR</button></div>
+    </div>
     <div class="chart" id="steady"></div>
     <div class="legend"><span><i style="background:var(--s1-soft)"></i>Session</span><span><i style="background:var(--s1)"></i>Rolling average</span></div>
   </section>
@@ -244,7 +250,8 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
 }
 
 // ---------- state ----------
-const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default };
+const state = { range: 0, bench: DATA.benchmarks[0]?.id, metric: "split", ssWin: DATA.steady_cfg.default,
+  ssLo: null, ssHi: null, ssMetric: "w_hr" };
 const t = d => +new Date(d + "T12:00");
 const inRange = d => !state.range || t(d) >= Date.now() - state.range * 864e5;
 
@@ -305,32 +312,37 @@ function renderBench() {
 }
 
 // Steady-state rows for a window ("all" = whole piece), with a rolling average.
-function steadyRows(win) {
+function steadyRows(win, lo = null, hi = null) {
   const rows = DATA.steady.map(r => {
     const v = win === "all" ? (r.w_hr ? r : null) : r.win[win];
     return v ? { date: r.date, meters: r.meters, seconds: r.seconds, rate: r.rate,
       split: v.split, hr: v.hr, w_hr: v.w_hr } : null;
-  }).filter(Boolean);
+  }).filter(r => r && (lo == null || r.split >= lo) && (hi == null || r.split < hi + 1));
   const n = DATA.steady_cfg.rolling;
   rows.forEach((r, i) => { const w = rows.slice(Math.max(0, i - n + 1), i + 1);
-    r.w_hr_avg = w.reduce((a, x) => a + x.w_hr, 0) / w.length; });
+    r.w_hr_avg = w.reduce((a, x) => a + x.w_hr, 0) / w.length;
+    r.hr_avg = w.reduce((a, x) => a + x.hr, 0) / w.length; });
   return rows;
 }
 
 function renderSteady() {
-  const win = state.ssWin;
-  const rows = steadyRows(win).filter(r => inRange(r.date));
-  const dots = rows.map(r => ({ x: t(r.date), y: r.w_hr,
-    tip: `${fmtDate(r.date)} · ${Math.round(r.seconds / 60)} min piece<br><b>${r.w_hr.toFixed(2)} W/beat</b>` +
-      ` · ${fmtSplit(r.split)} · ${Math.round(r.hr)} bpm · r${r.rate}${win === "all" ? "" : `<br>over the first ${win} min`}` }));
-  const avg = rows.map(r => ({ x: t(r.date), y: r.w_hr_avg }));
-  document.getElementById("ssSub").textContent = (win === "all"
-    ? `Watts per heartbeat over each whole piece (continuous, ${DATA.steady_cfg.min_minutes}+ min, rate ≤ 22).`
-    : `Watts per heartbeat over the first ${win} minutes of each piece at least that long, so long and short pieces compare fairly.`) +
-    ` Higher means more power for the same effort. ${rows.length} pieces.`;
+  const win = state.ssWin, M = state.ssMetric, band = state.ssLo != null || state.ssHi != null;
+  const rows = steadyRows(win, state.ssLo, state.ssHi).filter(r => inRange(r.date));
+  const val = r => M === "hr" ? r.hr : r.w_hr, avgOf = r => M === "hr" ? r.hr_avg : r.w_hr_avg;
+  const fmt = v => M === "hr" ? Math.round(v) + " bpm" : v.toFixed(2);
+  const dots = rows.map(r => ({ x: t(r.date), y: val(r),
+    tip: `${fmtDate(r.date)} · ${Math.round(r.seconds / 60)} min piece<br><b>${fmtSplit(r.split)}</b> · ${Math.round(r.hr)} bpm · ` +
+      `${r.w_hr.toFixed(2)} W/beat · r${r.rate}${win === "all" ? "" : `<br>over the first ${win} min`}` }));
+  const avg = rows.map(r => ({ x: t(r.date), y: avgOf(r) }));
+  const what = M === "hr" ? "Average heart rate" : "Watts per heartbeat";
+  const better = M === "hr" ? "Lower means fitter at that pace." : "Higher means more power for the same effort.";
+  const scope = win === "all" ? `over each whole piece (${DATA.steady_cfg.min_minutes}+ min, rate ≤ 22)`
+    : `over the first ${win} minutes of each piece at least that long`;
+  const bandTxt = band ? `, only pieces averaging ${state.ssLo != null ? fmtSplit(state.ssLo) : "any"}–${state.ssHi != null ? fmtSplit(state.ssHi + 0.9) : "any"}/500m` : "";
+  document.getElementById("ssSub").textContent = `${what} ${scope}${bandTxt}. ${better} ${rows.length} pieces.`;
   chart(document.getElementById("steady"), { series: [
     { points: dots, color: css("--s1-soft"), dots: true, dotR: 3.5 },
-    { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: v => v.toFixed(2) });
+    { points: avg, color: css("--s1"), line: true, width: 2.5, noHover: true }], yFmt: fmt, invert: false });
 }
 
 function renderAll() { renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderSteady(); }
@@ -348,6 +360,25 @@ document.getElementById("ssWin").innerHTML = DATA.steady_cfg.windows.map(n =>
   `<button data-v="${n}" aria-pressed="${String(n) === DATA.steady_cfg.default}">${n}m</button>`).join("") +
   `<button data-v="all" aria-pressed="${DATA.steady_cfg.default === "all"}">Whole</button>`;
 seg("ssWin", "ssWin", renderSteady);
+seg("ssMetric", "ssMetric", renderSteady);
+(() => {
+  const splits = DATA.steady.flatMap(r => [r.split, ...Object.values(r.win).map(v => v.split)]).filter(Boolean);
+  if (!splits.length) return;
+  const lo = Math.floor(Math.min(...splits)), hi = Math.floor(Math.max(...splits));
+  const opts = ['<option value="">Any</option>'];
+  for (let v = lo; v <= hi; v++) opts.push(`<option value="${v}">${fmtSplit(v).replace(/\.0$/, "")}</option>`);
+  for (const id of ["ssLo", "ssHi"]) {
+    const sel = document.getElementById(id); sel.innerHTML = opts.join("");
+    sel.addEventListener("change", () => {
+      state[id] = sel.value === "" ? null : +sel.value;
+      if (state.ssLo != null && state.ssHi != null && state.ssLo > state.ssHi) {   // keep fastest <= slowest
+        const other = id === "ssLo" ? "ssHi" : "ssLo"; state[other] = state[id];
+        document.getElementById(other).value = String(state[id]);
+      }
+      renderSteady();
+    });
+  }
+})();
 const pick = document.getElementById("benchPick");
 pick.innerHTML = DATA.benchmarks.map(b => `<option value="${b.id}">${b.label} (${b.rows.length})</option>`).join("");
 pick.addEventListener("change", () => { state.bench = pick.value; renderBench(); });
