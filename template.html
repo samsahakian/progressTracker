@@ -709,12 +709,12 @@ function lthrHeadline() {  // latest counting piece within recent_days, and the 
 }
 function nextTestHint(h) {
   const lt = A().lthr_test || {}, [r0, r1] = lt.retest_weeks || [8, 12], fmtM = d => new Date(d + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-  if (lt.next_test && TODAY <= lt.next_test) return `Next test: ${lt.next_test_note || "30-min all-out"}, around ${fmtM(lt.next_test)}; then every ${r0}–${r1} weeks.`;
+  if (lt.next_test && TODAY <= lt.next_test) return `Next test: ${lt.next_test_note || "30-min all-out"}, around ${fmtM(lt.next_test)}; then every ${r0}–${r1} weeks. <b>Don't lift legs before this.</b>`;
   const base = h.last && (!lt.next_test || h.last.date >= lt.next_test) ? h.last.date : lt.next_test;
   if (!base) return "";
   const from = addDays(base, r0 * 7), to = addDays(base, r1 * 7);
   return TODAY > to ? `<b>Test overdue</b>: due ${fmtM(from)}–${fmtM(to)} (${r0}–${r1} weeks after ${fmtDate(base)}).`
-    : `Next test due ${fmtM(from)}–${fmtM(to)} (${r0}–${r1} weeks after ${fmtDate(base)}).`;
+    : `Next test due ${fmtM(from)}–${fmtM(to)} (${r0}–${r1} weeks after ${fmtDate(base)}). <b>Don't lift legs before this.</b>`;
 }
 
 function renderLthr() {
@@ -730,13 +730,15 @@ function renderLthr() {
   document.getElementById("lthrSub").innerHTML = `${head} ${nextTestHint(h)}<br>Average stroke HR over minutes ${w0}–${w1} of each ${lt.minutes || 30}-min test piece (typed test, ` +
     `a benchmark match, or tagged #lthr; #nolthr excludes). ${s.pieces || 0} pieces, ${rows.length} with stroke HR. The headline uses the latest piece from the last ` +
     `${lt.recent_days ?? 180} days that is all-out, tagged #lthr, or rate-capped (≤ r${lt.capped_max_rate ?? 21}) but reading at or above the last all-out ` +
-    `(a low rate can only pull HR down). Zones only change when you edit the config.`;
+    `(a low rate can only pull HR down), compared with the last clean all-out piece. Pieces starting within ${LC().same_session_hours ?? 3} h of a squat/deadlift session ` +
+    `aren't used (pre-fatigued legs read low) unless tagged #lthr. Zones only change when you edit the config.`;
   if (!rows.length) return needs(node, `per-stroke HR on ${lt.minutes || 30}-min test pieces`);
-  const flags = r => [r.capped && "rate-capped", r.faded && "faded", r.counts ? `counts (${r.why})` : r.why && `not counted (${r.why})`].filter(Boolean);
+  const flags = r => [r.capped && "rate-capped", r.faded && "faded", r.post_lift != null && `lift ended ${r.post_lift} h before`,
+    r.counts ? `counts (${r.why})` : r.why === "after lift: not used" ? "<b>after lift: not used</b>" : r.why && `not counted (${r.why})`].filter(Boolean);
   const tip = r => `${fmtDate(r.date)} · ${r.start || "?"} · ${r.label}<br>LTHR est. <b>${Math.round(r.est.hr)} bpm</b> (min ${w0}–${w1})` +
     `${r.est.max_hr ? ` · max ${r.est.max_hr}` : ""}<br>${r.est.open_split ? fmtSplit(r.est.open_split) + " → " : ""}${fmtSplit(r.est.split)} · r${r.rate ?? "?"}` +
     `${flags(r).length ? `<br><span style="color:var(--text-3)">${flags(r).join(", ")}</span>` : ""}`;
-  const kind = r => r.capped ? "capped" : r.faded ? "faded" : "clean";
+  const kind = r => r.post_lift != null && !r.tagged ? "postlift" : r.capped ? "capped" : r.faded ? "faded" : "clean";
   if (state.view === "season") {
     const labels = overlay(node, rows.map(r => ({ date: r.date, y: r.est.hr, tip: tip(r) })), { yFmt: v => Math.round(v), mode: "pieces" });
     document.getElementById("lthrLegend").innerHTML = seasonLegend(labels);
@@ -751,9 +753,12 @@ function renderLthr() {
     ...(cfgL ? [{ points: [{ x: T0, y: cfgL }, { x: T1, y: cfgL }], color: css("--text-3"), line: true, width: 1, dash: "5 4", noHover: true, endLabel: `config ${cfgL}` }] : []),
     { points: clean, color: css("--s1"), line: true, dots: true, dotR: 4.5 },
     { points: pts("faded"), color: css("--s1"), dots: true, dotR: 4, opacity: 0.4 },
-    { points: pts("capped"), color: css("--s4"), dots: true, dotR: 4, shape: "diamond" }] });
+    { points: pts("capped"), color: css("--s4"), dots: true, dotR: 4, shape: "diamond" },
+    { points: pts("postlift"), color: css(shown.some(r => kind(r) === "postlift" && r.capped) ? "--s4" : "--s1"), dots: true, hollow: true, dotR: 4 },  // coach LTHR review 2: shown, not used
+    { points: pts("postlift").map(p => ({ ...p, pb: false })), color: css("--s2"), dots: true, hollow: true, dotR: 9, noHover: true }] });
   document.getElementById("lthrLegend").innerHTML = '<span><i style="background:var(--s1)"></i>All-out 30 min</span>' +
     '<span><i style="background:var(--s1-soft)"></i>Faded (may read low)</span><span><i style="background:var(--s4);transform:rotate(45deg);border-radius:1px"></i>Rate-capped (30r20)</span><span><i class="ring"></i>Headline piece</span>' +
+    (shown.some(r => kind(r) === "postlift") ? '<span><i class="ring" style="border-color:var(--s2)"></i>After a same-session lift: not used</span>' : "") +
     `<span style="color:var(--text-3)">Dashed: config LTHR</span>`;
 }
 

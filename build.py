@@ -683,6 +683,24 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
                               "type": max(types, key=types.get), "rows": marked})
     format_groups.sort(key=lambda g: (-len(g["rows"]), g["label"]))
 
+    # Heavy-lower lift ending 0-same_session_hours before a piece starts (coach LTHR review 2) -> gap in hours, else None
+    lift_ends = []
+    if lifting_data:
+        lcfg = cfg.get("lifting", {})
+        for ls_ in lifting_data["sessions"]:
+            if ls_["prehab"] or ls_["heavy_sets"] < lcfg.get("heavy_lower_min_sets", 3) or not ls_.get("start"):
+                continue
+            st0 = datetime.fromisoformat(f"{ls_['date']}T{ls_['start']}")
+            lift_ends.append(st0 + timedelta(minutes=ls_.get("minutes") or 0))
+    same_h = cfg.get("lifting", {}).get("same_session_hours", 3)
+
+    def lifted_before(w):
+        if not w.get("start_t"):
+            return None
+        t0 = datetime.fromisoformat(f"{w['date']}T{w['start_t']}")
+        gaps = [(t0 - e).total_seconds() / 3600 for e in lift_ends if e <= t0 and (t0 - e).total_seconds() < same_h * 3600]
+        return round(min(gaps), 1) if gaps else None
+
     # --- LTHR estimates from 30-min test pieces (avg HR, minutes 10-30) ---
     lt = ath.get("lthr_test", {})
     lt_min = lt.get("minutes", 30)
@@ -706,17 +724,21 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             row["faded"] = est["split"] - est["open_split"] > lt.get("fade_seconds", 3)
         lthr.append(row)
         row["tagged"] = "#lthr" in w["comments"]
+        row["post_lift"] = lifted_before(w)
     valid = [r for r in lthr if r["est"]]
-    clean = [r for r in valid if not r["capped"] and not r.get("faded")]
-    # Which pieces count toward the headline (coach LTHR feedback #1): all-out uncapped pieces; a #lthr tag; and a
-    # rate-capped piece whose estimate is >= the latest all-out estimate before it (a low rate can only pull HR down).
+    clean = [r for r in valid if not r["capped"] and not r.get("faded") and r["post_lift"] is None]
+    # Which pieces count toward the headline (coach LTHR feedback #1 and review 2): a #lthr tag always wins; a piece that
+    # starts within same_session_hours of a heavy-lower lift never counts (pre-fatigued legs read low); clean all-out
+    # uncapped pieces count; a rate-capped piece counts when its estimate is >= the last CLEAN all-out before it.
     last_clean = None
     for r in valid:
-        if not r["capped"] and not r.get("faded"):
+        if r["tagged"]:
+            r["counts"], r["why"] = True, "tagged #lthr"
+        elif r["post_lift"] is not None:
+            r["counts"], r["why"] = False, "after lift: not used"
+        elif not r["capped"] and not r.get("faded"):
             r["counts"], r["why"] = True, "all-out"
             last_clean = r["est"]["hr"]
-        elif r["tagged"]:
-            r["counts"], r["why"] = True, "tagged #lthr"
         elif r["capped"] and not r.get("faded") and last_clean is not None and r["est"]["hr"] >= last_clean:
             r["counts"], r["why"] = True, f"rate-capped, at or above the last all-out ({last_clean:g})"
         else:
@@ -929,7 +951,7 @@ def main():
     ls = payload["lthr_summary"]
     print(f"LTHR test pieces: {ls['pieces']} ({ls['valid']} with stroke HR, {ls['clean']} all-out & uncapped, {ls['counted']} count toward the headline):",
           [(r["date"], r["label"], (r["est"] or {}).get("hr"), "capped" if r["capped"] else "", "faded" if r.get("faded") else "",
-            "COUNTS" if r.get("counts") else "", r.get("why", "")) for r in payload["lthr"]])
+            "COUNTS" if r.get("counts") else "", r.get("why", ""), f"post-lift {r['post_lift']} h" if r.get("post_lift") is not None else "") for r in payload["lthr"]])
     if ls["latest"]:
         print(f"LTHR headline candidate: {ls['latest']['est']['hr']} on {ls['latest']['date']} ({ls['latest']['label']}, {ls['latest']['why']})")
     print("Benchmark formats:", ", ".join(f"{g['label']} ({len(g['rows'])})" for g in payload["benchmarks"]))
