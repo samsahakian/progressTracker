@@ -591,7 +591,7 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
     hard_rows = []
     for w in workouts:
         if w["stype"] in HARD and w.get("start_t"):
-            hard_rows.append({"dt": datetime.fromisoformat(f"{w['date']}T{w['start_t']}"), "label": f"{TYPE_NAMES[w['stype']]} erg"})
+            hard_rows.append({"dt": datetime.fromisoformat(f"{w['date']}T{w['start_t']}"), "label": f"{TYPE_NAMES[w['stype']]} erg", "id": w["id"]})
     for w in water:
         if w["type"] in HARD and w.get("start_t"):
             hard_rows.append({"dt": datetime.fromisoformat(f"{w['date']}T{w['start_t']}"), "label": "Hard on-water"})
@@ -665,6 +665,8 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
     for w in workouts:
         if w["stype"] in ("threshold", "race_pace", "test") or w["id"] in bench_of:
             formats[bench_of.get(w["id"]) or workout_format(w)].append(w)
+    # Benchmark pieces with a same-session lift before them get an "after lift" marker (coach review 2); not excluded.
+    after_lift = {h["row_id"]: h["gap_h"] for h in (lifting_data or {}).get("pre_hard", []) if h["kind"] == "same" and h.get("row_id")}
     format_groups = []
     for label, rows in formats.items():
         run_best, marked = None, []
@@ -672,7 +674,8 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
             pb = run_best is None or w["split"] < run_best
             run_best = w["split"] if pb else run_best
             rest = [iv[2] for iv in w["intervals"]]
-            marked.append({**w, "pb": pb, "rest": round(sum(rest) / len(rest)) if rest else None, "start": w.get("start_t")})
+            marked.append({**w, "pb": pb, "rest": round(sum(rest) / len(rest)) if rest else None, "start": w.get("start_t"),
+                           "after_lift": after_lift.get(w["id"])})
         types = defaultdict(int)
         for w in rows:
             types[w["stype"]] += 1
@@ -946,7 +949,8 @@ def main():
               f"Garmin strength matched {L['garmin']['matched']}; series {', '.join(f'{k} ({len(v)})' for k, v in L['e1rm'].items())}")
         print("  last 4 weeks lifts/prehab/sets:", [(w["week"], w["lifts"], w["prehab"], w["sets"]) for w in lw])
         print("  unmapped (accessory, guessed pattern):", [(u["name"], u["pattern"], u["how"], u["n"]) for u in L["unmapped"]])
-        print("  heavy lower body before a hard row:", [(h["lift_date"], h["row_date"], h["row"], h["gap_h"]) for h in L["pre_hard"][-6:]])
+        print("  heavy lower body before a hard row:", [(h["lift_date"], h["row_date"], h["row"], h["gap_h"], h["kind"]) for h in L["pre_hard"]])
+        print("  benchmark pieces after a same-session lift:", [(r["date"], g["label"], r["after_lift"]) for g in payload["benchmarks"] for r in g["rows"] if r.get("after_lift") is not None])
     print(f"Session types before interval HR-first: {s['types_before']}")
     print(f"Session types: {s['types']} · tagged {s['types_tagged']}, inferred {s['workouts'] - s['types_tagged']}, "
           f"low-confidence {s['types_low']}")

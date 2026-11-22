@@ -73,6 +73,7 @@
     "heavy_lower_series": ["Squat", "Squat (DB)", "Front squat", "Deadlift", "Deadlift (DB)", "Trap-bar deadlift"],
     "heavy_lower_min_sets": 3,
     "heavy_lower_hours": 24,
+    "same_session_hours": 3,
     "pattern_bands": {"squat": [3, 6], "hinge": [3, 6], "push": [4, 8], "pull": [4, 8], "core": [2, 6]},
     "garmin_match_hours": 3,
     "unlogged_min_minutes": 10

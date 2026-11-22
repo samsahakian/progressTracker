@@ -62,6 +62,11 @@ while d <= end:
                          "exercises": [ex("bw", [{"type": "normal", "reps": 15}] * 2), ex("sp", [{"type": "normal", "duration_seconds": 30}] * 2),
                                        ex("gb", [{"type": "normal", "reps": 10}] * 2), ex("pp", sets(20, 10, 2, warm=False))]})
     d += timedelta(days=1)
+# same-session cases (coach review 2): squat right before the Oct 3 30r20 (flags), and right after the Sep 5 one (must not)
+for day, hh, mm in (("2026-10-03", 5, 0), ("2026-09-05", 7, 30)):
+    t0 = datetime.fromisoformat(f"{day}T{hh:02d}:{mm:02d}")
+    workouts.append({"id": f"s{day}", "title": "Squat before erg" if hh == 5 else "Squat after erg", "start_time": (t0 + timedelta(hours=5)).isoformat() + "Z",
+                     "end_time": (t0 + timedelta(hours=5, minutes=50)).isoformat() + "Z", "exercises": [ex("sq", sets(225, 5, 4))]})
 acts.append({"date": "2026-11-12", "type": "strength_training", "load": 30, "minutes": 40, "start": "2026-11-12T05:30", "hr": 104, "name": "Strength"})
 
 DATA.mkdir(exist_ok=True)

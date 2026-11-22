@@ -168,10 +168,12 @@ def lifting_payload(workouts, templates, mapping, garmin_acts, hard_rows, cfg, t
         if s["prehab"] or s["heavy_sets"] < min_sets:
             continue
         for r in hard_rows:
-            if s["_st"] < r["dt"] and r["dt"] - s["_en"] <= timedelta(hours=hours):
+            # order matters (coach review 2): only a lift that ENDS before the hard row starts; row-then-lift never flags
+            if s["_en"] <= r["dt"] and r["dt"] - s["_en"] <= timedelta(hours=hours):
                 gap = round((r["dt"] - s["_en"]).total_seconds() / 3600, 1)
                 hit = {"lift_date": s["date"], "lift_start": s["start"], "sets": s["heavy_sets"], "row_date": r["dt"].date().isoformat(),
-                       "row_start": r["dt"].strftime("%H:%M"), "row": r["label"], "gap_h": max(0, gap)}
+                       "row_start": r["dt"].strftime("%H:%M"), "row": r["label"], "gap_h": gap, "row_id": r.get("id"),
+                       "kind": "same" if gap < lc.get("same_session_hours", 3) else "day_before"}
                 s["before_hard"].append(hit)
                 pre_hard.append(hit)
 
