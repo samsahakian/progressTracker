@@ -1,5 +1,5 @@
 # Hevy exercise name -> series and movement pattern, for the Lifting tab (coach Q2).
-# Names match case-insensitively. series: a key-lift series (listed under lifting.key_lifts in
+# Names match case-insensitively. pattern "other" (calf raises, banded walks) counts toward no pattern. series: a key-lift series (listed under lifting.key_lifts in
 # config.json) or "accessory". pattern: squat, hinge, push, pull or core.
 # Exercises not listed are accessories with a pattern guessed from Hevy's muscle group; the
 # Lifting tab lists them so you can add a row here.
@@ -8,8 +8,8 @@ hevy_name,series,pattern
 Squat (Barbell),Squat,squat
 Pause Squat (Barbell),Squat,squat
 Box Squat (Barbell),Squat,squat
-Front Squat,Squat,squat
-Front Squat (Barbell),Squat,squat
+Front Squat,Front squat,squat
+Front Squat (Barbell),Front squat,squat
 Deadlift (Barbell),Deadlift,hinge
 Trap Bar Deadlift,Trap-bar deadlift,hinge
 Bench Press (Barbell),Bench press,push
@@ -48,3 +48,38 @@ Dead Bug,accessory,core
 Hanging Leg Raise,accessory,core
 Ab Wheel,accessory,core
 Bird Dog,accessory,core
+# Sam's own Hevy names (coach review 1, 2026-11-22)
+Squat (Dumbbell),Squat (DB),squat
+Deadlift (Dumbbell),Deadlift (DB),hinge
+Split Squat (Dumbbell),accessory,squat
+Bulgarian Split Squat (Dumbbell),accessory,squat
+Bottom Half DB Squat,accessory,squat
+Sissy Squat (Weighted),accessory,squat
+Pull Up (Weighted),accessory,pull
+Chin Up (Weighted),accessory,pull
+Neutral Grip Pull Ups,accessory,pull
+Chest Supported Incline Row (Dumbbell),accessory,pull
+Chest Supported Reverse Fly (Dumbbell),accessory,pull
+Rear Delt Reverse Fly (Dumbbell),accessory,pull
+trx face pull,accessory,pull
+Hammer Curl (Dumbbell),accessory,pull
+Chest Dip (Weighted),accessory,push
+Triceps Dip (Weighted),accessory,push
+DB High Incline Bench Press,accessory,push
+Hex Press (Dumbbell),accessory,push
+Chest Fly (Dumbbell),accessory,push
+Skullcrusher (Dumbbell),accessory,push
+Triceps Kickback (Dumbbell),accessory,push
+High Lateral Raise,accessory,push
+shoulder shocker,accessory,push
+Standing Calf Raise (Dumbbell),accessory,other
+Single Leg Standing Calf Raise (Dumbbell),accessory,other
+Lying Leg Raise,accessory,core
+Hanging Knee Raise,accessory,core
+Decline Crunch,accessory,core
+Dragon Flag,accessory,core
+Single Leg Glute Bridge,accessory,hinge
+assisted nordic,accessory,hinge
+Nordic Hamstrings Curls,accessory,hinge
+banded Side Steps,accessory,other
+banded cowboy walk,accessory,other

@@ -12,7 +12,7 @@ random.seed(11)
 LB = 1 / 2.2046226218
 DATA = Path(__file__).resolve().parent.parent / "data"
 TPL = {"sq": ("Squat (Barbell)", "quadriceps"), "dl": ("Deadlift (Barbell)", "hamstrings"), "bp": ("Bench Press (Barbell)", "chest"),
-       "ohp": ("Overhead Press (Barbell)", "shoulders"), "row": ("Bent Over Row (Barbell)", "upper_back"), "pu": ("Pull Up", "lats"),
+       "ohp": ("Overhead Press (Barbell)", "shoulders"), "ohpdb": ("Overhead Press (Dumbbell)", "shoulders"), "dldb": ("Deadlift (Dumbbell)", "hamstrings"), "row": ("Bent Over Row (Barbell)", "upper_back"), "pu": ("Pull Up", "lats"),
        "pl": ("Plank", "abdominals"), "wc": ("Cable Woodchop", "obliques"), "bw": ("Lateral Band Walk", "abductors"),
        "sp": ("Side Plank", "abdominals"), "gb": ("Single Leg Glute Bridge", "glutes"), "pp": ("Pallof Press", "abdominals")}
 
@@ -38,17 +38,18 @@ while d <= end:
         t0 = datetime(d.year, d.month, d.day, 18 if d.weekday() == 2 else 5, 30)
         exs = [ex("sq", sets(sq, 5, 3))]
         if a:
-            exs += [ex("bp", sets(bp, 5, 3)), ex("dl", sets(dl, 5, 1)), ex("pl", [{"type": "normal", "duration_seconds": 45}] * 2)]
+            exs += [ex("bp", sets(bp, 5, 3)), (ex("dl", sets(dl, 5, 1)) if d >= date(2026, 9, 1) else ex("dldb", sets(105, 10, 3, warm=False))), ex("pl", [{"type": "normal", "duration_seconds": 45}] * 2)]
             bp += 5
             dl += 5 if d < date(2026, 8, 1) or d > date(2026, 9, 10) else 0
         else:
-            exs += [ex("ohp", sets(ohp, 5, 3)), ex("row", sets(95, 8, 3, warm=False)), ex("pu", [{"type": "normal", "reps": 6}] * 2)]
+            exs += ([ex("ohpdb", sets(35, 8, 3))] if d < date(2026, 7, 20) else []) + [ex("row", sets(95, 8, 3, warm=False)), ex("pu", [{"type": "normal", "reps": 6}] * 2)]
             if random.random() < 0.4:
                 exs.append(ex("wc", sets(30, 10, 2, warm=False)))
             ohp += 2.5
         sq += 5 if d < date(2026, 11, 1) else 0
         mins = random.randint(45, 65)
-        workouts.append({"id": f"w{len(workouts)}", "title": "Workout A" if a else "Workout B",
+        if d <= date(2026, 10, 18) or d >= date(2026, 11, 9):  # Oct 19 - Nov 8: Garmin only (not logged in Hevy)
+          workouts.append({"id": f"w{len(workouts)}", "title": "Workout A" if a else "Workout B",
                          "start_time": (t0 + timedelta(hours=6)).isoformat() + "Z", "end_time": (t0 + timedelta(hours=6, minutes=mins)).isoformat() + "Z",
                          "exercises": exs})
         acts.append({"date": d.isoformat(), "type": "strength_training", "load": random.randint(20, 45), "minutes": mins,

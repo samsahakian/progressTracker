@@ -65,12 +65,12 @@
     "e1rm_mute_goal": "hc2026",
     "window_weeks": 16,
     "key_lifts": [
-      {"panel": "Squat", "series": ["Squat"]},
-      {"panel": "Deadlift", "series": ["Deadlift", "Trap-bar deadlift"]},
+      {"panel": "Squat", "series": ["Squat", "Squat (DB)", "Front squat"]},
+      {"panel": "Deadlift", "series": ["Deadlift", "Deadlift (DB)", "Trap-bar deadlift"]},
       {"panel": "Bench press", "series": ["Bench press"]},
       {"panel": "Overhead press", "series": ["OHP (barbell)", "OHP (dumbbell)"]}
     ],
-    "heavy_lower_series": ["Squat", "Deadlift", "Trap-bar deadlift"],
+    "heavy_lower_series": ["Squat", "Squat (DB)", "Front squat", "Deadlift", "Deadlift (DB)", "Trap-bar deadlift"],
     "heavy_lower_min_sets": 3,
     "heavy_lower_hours": 24,
     "pattern_bands": {"squat": [3, 6], "hinge": [3, 6], "push": [4, 8], "pull": [4, 8], "core": [2, 6]},

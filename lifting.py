@@ -179,16 +179,17 @@ def lifting_payload(workouts, templates, mapping, garmin_acts, hard_rows, cfg, t
     weeks = {}
     cur, last = date.fromisoformat(monday(date.fromisoformat(first_day))), date.today()
     while cur <= last:
-        weeks[cur.isoformat()] = {"week": cur.isoformat(), "lifts": 0, "unlogged": 0, "prehab": 0, "sets": {p: 0 for p in PATTERNS}}
+        weeks[cur.isoformat()] = {"week": cur.isoformat(), "lifts": 0, "unlogged": 0, "logged": 0, "prehab": 0, "sets": {p: 0 for p in PATTERNS}}
         cur += timedelta(days=7)
     for s in sessions:
         wk = weeks.setdefault(monday(date.fromisoformat(s["date"])),
-                              {"week": monday(date.fromisoformat(s["date"])), "lifts": 0, "unlogged": 0, "prehab": 0, "sets": {p: 0 for p in PATTERNS}})
+                              {"week": monday(date.fromisoformat(s["date"])), "lifts": 0, "unlogged": 0, "logged": 0, "prehab": 0, "sets": {p: 0 for p in PATTERNS}})
         if s["prehab"]:
             wk["prehab"] += 1
             continue
         wk["lifts"] += 1
         wk["unlogged"] += s["unlogged"]
+        wk["logged"] = wk.get("logged", 0) + (not s["unlogged"])
         for p, n in s["sets"].items():
             if p in wk["sets"]:
                 wk["sets"][p] += n

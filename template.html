@@ -372,8 +372,11 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
   const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
   const Y = v => invert ? m.t + (v - y0) / (y1 - y0) * (H - m.t - m.b) : H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
 
+  if ((bands || []).some(b => b.hatch)) {  // diagonal hatch for "no data" spans
+    const pat = el("pattern", { id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, el("defs", {}, svg));
+    el("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: css("--text-3"), "stroke-width": 1.5, "stroke-opacity": 0.45 }, pat); }
   (bands || []).forEach(b => { const a = Math.max(x0, b.x0), z = Math.min(x1, b.x1); if (z <= a) return;
-    el("rect", { x: X(a), y: m.t, width: X(z) - X(a), height: H - m.t - m.b, fill: css("--s1"), "fill-opacity": 0.07 }, svg);
+    el("rect", { x: X(a), y: m.t, width: X(z) - X(a), height: H - m.t - m.b, ...(b.hatch ? { fill: "url(#hatch)" } : { fill: css("--s1"), "fill-opacity": 0.07 }) }, svg);
     if (b.label) el("text", { x: X(a) + 4, y: m.t + 10, fill: css("--text-3"), "font-size": 10 }, svg).textContent = b.label; });
   if (hband) el("rect", { x: m.l, width: W - m.l - m.r, y: Math.min(Y(hband.y0), Y(hband.y1)), height: Math.abs(Y(hband.y1) - Y(hband.y0)),
     fill: css("--s3"), "fill-opacity": 0.12 }, svg);
@@ -1017,7 +1020,7 @@ function renderLifting() {
     document.getElementById("liftSub").textContent = ""; document.getElementById("liftLog").innerHTML = ""; return;
   }
   const c = LC(), monday = mondayOf(TODAY), wk = liftWeek(monday), lt = c.lifts_target ?? 2, pt = c.prehab_target ?? 3;
-  document.getElementById("liftSub").textContent = `${fmtDay(monday)} – today · Hevy is the count; a Garmin strength session with no Hevy workout that day counts as an unlogged lift. Prehab (Hevy workouts titled "Prehab") is counted separately.`;
+  document.getElementById("liftSub").textContent = `${fmtDay(monday)} – today · Hevy is the count; a Garmin strength session with no Hevy workout that day counts as an unlogged lift. Prehab (Hevy workouts titled "Prehab") is counted separately. The heavy-lower-body-before-a-hard-row check needs the Hevy log: an unlogged lift has no sets, so it can't trigger.`;
   const tiles = [
     ["Lifts", `${wk.lifts} / ${lt}`, wk.unlogged ? `incl. ${wk.unlogged} unlogged (Garmin only)` : wk.lifts >= lt ? "target met" : `${lt - wk.lifts} to go`],
     ["Prehab", `${wk.prehab} / ${pt}`, wk.prehab >= pt ? "target met" : `${pt - wk.prehab} to go · target ${pt}+`],
@@ -1034,7 +1037,7 @@ function renderLifting() {
   // 16-week window, Holiday Challenge and 1M block shaded
   const T1 = t(monday) + 7 * 864e5, T0 = T1 - (c.window_weeks ?? 16) * 7 * 864e5, xDomain = [T0, T1];
   const bands = DATA.goals.map(g => ({ x0: t(g.start) - 432e5, x1: t(g.end) + 432e5, label: g.id === "mm2027" ? "1M block" : g.label }));
-  const inWin = d => t(d) >= T0 && t(d) <= T1, colors = ["--s1", "--s2"];
+  const inWin = d => t(d) >= T0 && t(d) <= T1, colors = ["--s1", "--s2", "--s3"];
   const g = muteGoal();
   document.getElementById("e1Sub").textContent = `Epley e1RM from the best normal or failure set of ${c.e1rm_max_reps ?? 10} reps or fewer per session (a single is its own weight); warm-ups and drop sets excluded. ` +
     `Last ${c.window_weeks ?? 16} weeks, ${u()}. Shaded: Holiday Challenge (hold strength) and the 1M block (slow progress). A drop over ${c.e1rm_drop_pct ?? 5}% (best of 4 weeks vs the 4 before) is flagged above` +
@@ -1044,25 +1047,35 @@ function renderLifting() {
   const used = new Set();
   (c.key_lifts || []).forEach((k, i) => {
     const series = k.series.filter(s => (lift.e1rm[s] || []).length).map((s, j) => { used.add(s);
-      return { color: css(colors[j % 2]), line: true, dots: true, dotR: 3, points: lift.e1rm[s].filter(r => inWin(r.date)).map(r => ({ x: t(r.date), y: r.e1rm,
+      return { color: css(colors[j % 3]), line: true, dots: true, dotR: 3, points: lift.e1rm[s].filter(r => inWin(r.date)).map(r => ({ x: t(r.date), y: r.e1rm,
         tip: `${fmtDate(r.date)} · ${esc(s)}<br>e1RM <b>${Math.round(r.e1rm)} ${u()}</b> · top set ${Math.round(r.w)} × ${r.r}${r.rpe ? ` @ RPE ${r.rpe}` : ""}` })) }; });
-    const latest = k.series.map(s => (lift.e1rm[s] || []).slice(-1)[0] && `${s} ${Math.round(lift.e1rm[s].slice(-1)[0].e1rm)} ${u()}`).filter(Boolean);
-    document.getElementById(`e1n${i}`).textContent = latest.length ? `latest ${latest.join(" · ")}` : "";
+    const lastOf = s => (lift.e1rm[s] || []).slice(-1)[0];  // coach review 1 #2: never "latest" for a point outside the window
+    const inside = k.series.filter(s => lastOf(s) && inWin(lastOf(s).date)), outside = k.series.filter(s => lastOf(s) && !inWin(lastOf(s).date));
+    document.getElementById(`e1n${i}`).textContent = inside.length ? `latest ${inside.map(s => `${s} ${Math.round(lastOf(s).e1rm)} ${u()}`).join(" · ")}`
+      : outside.length ? `last: ${outside.map(s => `${s} ${Math.round(lastOf(s).e1rm)} ${u()} on ${fmtDate(lastOf(s).date)}`).join(" · ")}` : "";
     chart(document.getElementById(`e1c${i}`), { height: 160, series, xDomain, bands, yFmt: v => Math.round(v), emptyMsg: `No ${k.panel.toLowerCase()} sessions in the last ${c.window_weeks ?? 16} weeks.` });
   });
   const multi = (c.key_lifts || []).filter(k => k.series.filter(s => used.has(s)).length > 1);
   document.getElementById("e1Legend").innerHTML = multi.length ? multi.map(k => k.series.filter(s => used.has(s)).map((s, j) =>
-    `<span><i style="background:var(${colors[j % 2]})"></i>${esc(s)}</span>`).join("")).join("") + '<span style="color:var(--text-3)">Equipment that changes the load is its own line</span>' : "";
+    `<span><i style="background:var(${colors[j % 3]})"></i>${esc(s)}</span>`).join("")).join("") + '<span style="color:var(--text-3)">Equipment that changes the load is its own line</span>' : "";
 
   const bandsP = c.pattern_bands || {}, weeks = lift.weeks.filter(w => t(w.week) >= T0 - 864e5 && t(w.week) < T1);
-  document.getElementById("setsSub").textContent = `Normal + failure sets per Monday–Sunday week, every exercise counted toward its pattern (prehab excluded). Shaded = soft target band. Last ${c.window_weeks ?? 16} weeks.`;
+  document.getElementById("setsSub").textContent = `Normal + failure sets per Monday–Sunday week, every exercise counted toward its pattern (prehab excluded). Shaded = soft target band. Hatched = weeks whose lifts are only on Garmin (not logged in Hevy), so there's no set data. Last ${c.window_weeks ?? 16} weeks.`;
+  // weeks whose lifts were all Garmin-only have no set data: hatched "unlogged", not zero (coach review 1 #1)
+  const unl = w => w.lifts > 0 && !(w.logged ?? (w.lifts - w.unlogged)), tw = lift.weeks.find(w => w.week === monday);
+  const hatch = [];
+  weeks.filter(unl).forEach(w => { const x0 = t(w.week), last = hatch[hatch.length - 1];
+    if (last && Math.abs(last.x1 - x0) < 864e5) last.x1 = x0 + 7 * 864e5; else hatch.push({ x0, x1: x0 + 7 * 864e5, hatch: true }); });
+  hatch.forEach(h => { if (h.x1 - h.x0 >= 14 * 864e5) h.label = "unlogged"; });
+  const thisWk = p => !tw || !tw.lifts ? "this week 0" : unl(tw) ? "this week: not logged" : `this week ${tw.sets[p] ?? 0}`;
   document.getElementById("setsGrid").innerHTML = ["squat", "hinge", "push", "pull", "core"].map(p =>
-    `<div><h3 class="mini">${p[0].toUpperCase() + p.slice(1)} <span>${bandsP[p] ? `target ${bandsP[p][0]}–${bandsP[p][1]}` : ""}${weeks.length ? ` · this week ${(lift.weeks.find(w => w.week === monday)?.sets[p]) ?? 0}` : ""}</span></h3><div class="chart" id="sets_${p}"></div></div>`).join("");
+    `<div><h3 class="mini">${p[0].toUpperCase() + p.slice(1)} <span>${bandsP[p] ? `target ${bandsP[p][0]}–${bandsP[p][1]}` : ""} · ${thisWk(p)}</span></h3><div class="chart" id="sets_${p}"></div></div>`).join("");
   ["squat", "hinge", "push", "pull", "core"].forEach(p => { const b = bandsP[p];
-    chart(document.getElementById(`sets_${p}`), { height: 120, bars: true, yMin0: true, xDomain: [T0, T1], hband: b ? { y0: b[0], y1: b[1] } : null,
+    chart(document.getElementById(`sets_${p}`), { height: 120, bars: true, yMin0: true, xDomain: [T0, T1], hband: b ? { y0: b[0], y1: b[1] } : null, bands: hatch,
       yFmt: v => Number.isInteger(v) ? String(v) : "", emptyMsg: "No lifting weeks in this window.",
       series: [{ color: css("--s1"), points: weeks.map(w => ({ x: t(w.week), y: w.sets[p] || 0,
-        tip: `Week of ${fmtDate(w.week)}<br><b>${w.sets[p] || 0}</b> hard ${p} sets${b ? ` · target ${b[0]}–${b[1]}` : ""} · ${w.lifts} lift${w.lifts === 1 ? "" : "s"}` })) }] }); });
+        tip: unl(w) ? `Week of ${fmtDate(w.week)}<br>${w.lifts} lift${w.lifts === 1 ? "" : "s"} on Garmin only: <b>not logged in Hevy</b>, no set data`
+          : `Week of ${fmtDate(w.week)}<br><b>${w.sets[p] || 0}</b> hard ${p} sets${b ? ` · target ${b[0]}–${b[1]}` : ""} · ${w.lifts} lift${w.lifts === 1 ? "" : "s"}${w.unlogged ? ` (${w.unlogged} not logged, not counted)` : ""}` })) }] }); });
 
   renderLiftLog();
   const un = lift.unmapped || [], box = document.getElementById("unmapped");
