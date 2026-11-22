@@ -1,0 +1,50 @@
+# Hevy exercise name -> series and movement pattern, for the Lifting tab (coach Q2).
+# Names match case-insensitively. series: a key-lift series (listed under lifting.key_lifts in
+# config.json) or "accessory". pattern: squat, hinge, push, pull or core.
+# Exercises not listed are accessories with a pattern guessed from Hevy's muscle group; the
+# Lifting tab lists them so you can add a row here.
+# Equipment that changes the load gets its own series (trap bar vs barbell, DB vs barbell press).
+hevy_name,series,pattern
+Squat (Barbell),Squat,squat
+Pause Squat (Barbell),Squat,squat
+Box Squat (Barbell),Squat,squat
+Front Squat,Squat,squat
+Front Squat (Barbell),Squat,squat
+Deadlift (Barbell),Deadlift,hinge
+Trap Bar Deadlift,Trap-bar deadlift,hinge
+Bench Press (Barbell),Bench press,push
+Overhead Press (Barbell),OHP (barbell),push
+Overhead Press (Dumbbell),OHP (dumbbell),push
+Shoulder Press (Dumbbell),OHP (dumbbell),push
+Seated Overhead Press (Dumbbell),OHP (dumbbell),push
+Romanian Deadlift (Barbell),accessory,hinge
+Romanian Deadlift (Dumbbell),accessory,hinge
+Good Morning (Barbell),accessory,hinge
+Hip Thrust (Barbell),accessory,hinge
+Glute Bridge,accessory,hinge
+Goblet Squat,accessory,squat
+Lunge (Dumbbell),accessory,squat
+Lunge (Barbell),accessory,squat
+Bulgarian Split Squat,accessory,squat
+Step Up (Dumbbell),accessory,squat
+Bench Press (Dumbbell),accessory,push
+Incline Bench Press (Dumbbell),accessory,push
+Push Up,accessory,push
+Triceps Dip,accessory,push
+Lateral Raise (Dumbbell),accessory,push
+Bent Over Row (Barbell),accessory,pull
+Bent Over Row (Dumbbell),accessory,pull
+Dumbbell Row,accessory,pull
+Pendlay Row (Barbell),accessory,pull
+Pull Up,accessory,pull
+Chin Up,accessory,pull
+Inverted Row,accessory,pull
+Face Pull,accessory,pull
+Bicep Curl (Dumbbell),accessory,pull
+Plank,accessory,core
+Side Plank,accessory,core
+Pallof Press,accessory,core
+Dead Bug,accessory,core
+Hanging Leg Raise,accessory,core
+Ab Wheel,accessory,core
+Bird Dog,accessory,core

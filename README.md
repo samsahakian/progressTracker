@@ -59,3 +59,17 @@ kept separate, never summed; season meters stay erg-only, matching Concept2.
 
 Indoor rowing activities are skipped, so erg pieces aren't counted twice. When the key expires the
 daily run still builds the erg dashboard and shows a warning; make a new key and update the secret.
+
+## Add lifting from Hevy (optional)
+
+Adds a **Lifting** tab (adherence, key-lift e1RM, weekly hard sets by movement pattern, prehab,
+session list) and lift-day ticks on the rowing charts. Needs Hevy Pro for the API.
+
+1. Hevy → **Settings → Developer** (or hevy.com/settings?developer) → generate an API key.
+2. Repo secret `HEVY_API_KEY` = that key.
+3. **Actions → Update dashboard → Run workflow.**
+
+Exercises are grouped by `lifts.csv` (Hevy exercise name → series, movement pattern). Anything not
+listed there is an accessory, with its pattern guessed from Hevy's muscle group; the Lifting tab lists
+those so you can add a row. Log prehab as a Hevy workout titled "Prehab". Weight unit and targets are
+under `lifting` in `config.json`.

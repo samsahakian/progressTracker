@@ -52,6 +52,31 @@
     ],
     "default_window": 60
   },
+  "lifting": {
+    "_help": "Coach's Lifting tab spec (2026-11-21). Hevy stores kg; unit is display only (lb or kg). e1RM = Epley on the best normal/failure set with reps <= max_reps (a single = its weight). Hard sets = normal + failure, prehab excluded. Bands are soft targets per week.",
+    "unit": "lb",
+    "lifts_target": 2,
+    "prehab_target": 3,
+    "prehab_title": "prehab",
+    "no_lift_days": 6,
+    "e1rm_max_reps": 10,
+    "e1rm_drop_pct": 5,
+    "e1rm_drop_window_days": 28,
+    "e1rm_mute_goal": "hc2026",
+    "window_weeks": 16,
+    "key_lifts": [
+      {"panel": "Squat", "series": ["Squat"]},
+      {"panel": "Deadlift", "series": ["Deadlift", "Trap-bar deadlift"]},
+      {"panel": "Bench press", "series": ["Bench press"]},
+      {"panel": "Overhead press", "series": ["OHP (barbell)", "OHP (dumbbell)"]}
+    ],
+    "heavy_lower_series": ["Squat", "Deadlift", "Trap-bar deadlift"],
+    "heavy_lower_min_sets": 3,
+    "heavy_lower_hours": 24,
+    "pattern_bands": {"squat": [3, 6], "hinge": [3, 6], "push": [4, 8], "pull": [4, 8], "core": [2, 6]},
+    "garmin_match_hours": 3,
+    "unlogged_min_minutes": 10
+  },
   "season_start_month": 5,
   "timezone": "America/Chicago",
   "athlete": {
