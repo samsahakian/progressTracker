@@ -96,12 +96,20 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 @media (max-width: 480px) { #rangeLbl, .lg { display: none; } .sm { display: inline; } .controls { gap: 6px; padding: 8px 16px; flex-wrap: nowrap; }
   .controls .seg button { padding: 6px 7px; font-size: 12.5px; }
   .seg button { padding: 6px 8px; } .tile .v { font-size: 20px; } .tile.na .v { font-size: 16px; } }
+.tabs { margin: 10px 0 4px; }
+.tabs button { padding: 7px 14px; font-weight: 500; }
+.zonebar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; margin: 6px 0 4px; position: relative; }
+.zonebar div { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; min-width: 0; overflow: hidden; white-space: nowrap; }
+.zonebar .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
+.zscale { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-bottom: 10px; }
+.zsw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 </style>
 </head>
 <body>
 <main>
   <h1>Rowing Progress</h1>
   <p class="sub" id="meta"></p>
+  <div class="seg tabs" id="tabs" role="tablist"><button data-v="training" aria-pressed="true">Training</button><button data-v="hr">LTHR &amp; zones</button></div>
   <div class="toolbar controls" id="controls">
     <div class="seg" id="view"><button data-v="time" aria-pressed="true">Timeline</button><button data-v="season"><span class="lg">By season</span><span class="sm">Seasons</span></button></div>
     <span class="sub" style="margin:0 0 0 8px" id="rangeLbl">Range</span>
@@ -111,6 +119,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     </div>
   </div>
 
+  <div id="tab-training">
   <section class="card week" id="thisWeek">
     <h2>This week</h2>
     <p class="sub" id="weekSub"></p>
@@ -165,12 +174,6 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="tablewrap"><table id="benchTable"></table></div>
   </section>
 
-  <section class="card">
-    <h2>LTHR estimates</h2>
-    <p class="sub" id="lthrSub"></p>
-    <div class="chart" id="lthr"></div>
-    <div class="legend" id="lthrLegend"></div>
-  </section>
 
 
   <section class="card">
@@ -242,6 +245,23 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     </div>
     <div class="tablewrap" style="max-height:420px"><table id="logTable"></table></div>
   </section>
+
+  </div>
+
+  <div id="tab-hr" hidden>
+  <section class="card">
+    <h2>LTHR estimates</h2>
+    <p class="sub" id="lthrSub"></p>
+    <div class="chart" id="lthr"></div>
+    <div class="legend" id="lthrLegend"></div>
+  </section>
+  <section class="card">
+    <h2>HR zones</h2>
+    <p class="sub" id="zonesSub"></p>
+    <div class="zonebar" id="zoneBar"></div>
+    <div class="tablewrap" style="max-height:none"><table id="zonesTable"></table></div>
+  </section>
+  </div>
 
   <footer id="foot"></footer>
 </main>
@@ -594,6 +614,35 @@ function renderDrift() {
   document.getElementById("driftLegend").innerHTML = todLegend() + `<span><i class="ring"></i>Over ${flag}%</span>`;
 }
 
+const ZONE_COLORS = { Z1: ["--s3", 0.55], Z2: ["--s3", 1], Z3: ["--s4", 1], Z4: ["--s2", 0.55], Z5a: ["--s2", 0.75], Z5b: ["--s2", 0.9], Z5c: ["--s2", 1] };
+const zoneColor = z => { const [v, o] = ZONE_COLORS[z] || ["--text-3", 1]; return { bg: css(v), o }; };
+function renderZones() {
+  const a = A(), zones = a.zones || [], L = a.lthr, maxHr = a.max_hr || (zones.length ? zones[zones.length - 2][1] + 10 : 190);
+  const table = document.getElementById("zonesTable"), bar = document.getElementById("zoneBar");
+  if (!zones.length) { bar.innerHTML = ""; table.innerHTML = ""; return needs(document.getElementById("zonesSub"), "zones in config.json"); }
+  const lo = Math.min(120, zones[0][1] - 20), rows = zones.map(([z, top], i) => ({ z, from: i ? zones[i - 1][1] + 1 : null, to: i === zones.length - 1 ? null : top }));
+  // time in zone, last 4 weeks (erg + water + Garmin-only indoor, from stroke/FIT HR)
+  const cutoff = addDays(TODAY, -27 - ((new Date(TODAY + "T12:00").getDay() + 6) % 7)), sec = {};
+  (DATA.intensity || []).filter(w => w.week >= cutoff).forEach(w => Object.entries(w.zones || {}).forEach(([z, v]) => sec[z] = (sec[z] || 0) + v));
+  const tot = Object.values(sec).reduce((x, y) => x + y, 0), est = DATA.lthr_summary?.latest;
+  document.getElementById("zonesSub").innerHTML = `Coach zones from config.json, LTHR <b>${L ?? "?"}</b>, max HR ${a.max_hr ?? "?"}. ` +
+    `Time in zone covers the last 4 weeks (${Math.round(tot / 60)} min with HR).`;
+  const span = maxHr - lo, pos = v => Math.max(0, Math.min(100, (v - lo) / span * 100));
+  bar.innerHTML = rows.map(r => { const f = r.from ?? lo, t = r.to ?? maxHr, c = zoneColor(r.z);
+    return `<div style="width:${pos(t + (r.to == null ? 0 : 1)) - pos(f)}%;background:${c.bg};opacity:${c.o}" title="${r.z}">${r.z}</div>`; }).join("") +
+    (L ? `<span class="mark" style="left:${pos(L)}%" title="Config LTHR ${L}"></span>` : "") +
+    (est ? `<span class="mark" style="left:${pos(est.est.hr)}%;background:var(--s1)" title="Latest estimate ${Math.round(est.est.hr)}"></span>` : "");
+  const scale = document.getElementById("zoneScale") || Object.assign(document.createElement("div"), { id: "zoneScale", className: "zscale" });
+  bar.after(scale); scale.innerHTML = `<span>${lo}</span><span>LTHR ${L ?? "?"}${est ? ` · <span style="color:var(--s1)">est. ${Math.round(est.est.hr)}</span>` : ""}</span><span>${maxHr}</span>`;
+  const pct = v => L ? Math.round(v / L * 100) + "%" : "—";
+  table.innerHTML = "<tr><th>Zone</th><th>bpm</th><th>% LTHR</th><th>4 wks</th><th>Share</th></tr>" + rows.map(r => {
+    const c = zoneColor(r.z), m = sec[r.z] || 0;
+    const bpm = r.from == null ? `≤ ${r.to}` : r.to == null ? `${r.from}+` : `${r.from}–${r.to}`;
+    const p = r.from == null ? `≤ ${pct(r.to)}` : r.to == null ? `${pct(r.from)}+` : `${pct(r.from)}–${pct(r.to)}`;
+    return `<tr><td><i class="zsw" style="background:${c.bg};opacity:${c.o}"></i>${r.z}</td><td>${bpm}</td><td>${p}</td>` +
+      `<td>${Math.round(m / 60)} min</td><td>${tot ? Math.round(m / tot * 100) + "%" : "—"}</td></tr>`; }).join("");
+}
+
 function renderLthr() {
   const node = document.getElementById("lthr"), a = A(), lt = a.lthr_test || {}, [w0, w1] = lt.window_min || [10, 30];
   const s = DATA.lthr_summary || {}, rows = (DATA.lthr || []).filter(r => r.est), cfgL = a.lthr;
@@ -879,7 +928,7 @@ function renderBench() {
 }
 
 // Steady-state rows for a window ("all" = whole piece), with a rolling average.
-function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderLthr(); renderWater(); renderLog(); }
+function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderLthr(); renderZones(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -901,6 +950,15 @@ function applyView() {  // range and time-of-day split only apply to the timelin
   try { localStorage.setItem("view", state.view); } catch (e) {}
 }
 seg("view", "view", () => { applyView(); renderAll(); });
+function applyTab() {
+  for (const v of ["training", "hr"]) document.getElementById("tab-" + v).hidden = state.tab !== v;
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === state.tab));
+  try { localStorage.setItem("tab", state.tab); } catch (e) {}
+}
+state.tab = location.hash === "#hr" ? "hr" : "training";
+try { if (!location.hash && localStorage.getItem("tab") === "hr") state.tab = "hr"; } catch (e) {}
+applyTab();
+seg("tabs", "tab", () => { applyTab(); history.replaceState(null, "", state.tab === "hr" ? "#hr" : location.pathname); renderAll(); scrollTo(0, 0); });
 seg("seasonSrc", "seasonSrc", renderSeasons);
 document.getElementById("goalPick").innerHTML = DATA.goals.map(g =>
   `<button data-v="${g.id}" aria-pressed="${g.id === currentGoal()?.g.id}">${g.label}</button>`).join("");
