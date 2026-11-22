@@ -131,7 +131,14 @@
     "garmin_min_minutes": 10,
     "hr_artifact_bpm": 20,
     "hr_artifact_seconds": 5,
-    "tod_min_sessions": 5
+    "tod_min_sessions": 5,
+    "lthr_test": {
+      "_help": "LTHR estimates: avg HR over window_min of each continuous `minutes`-long test piece (typed test, a benchmark match, or tagged #lthr; #nolthr excludes). Pieces at or under capped_max_rate are rate-capped (e.g. 30r20) and shown apart; a piece whose window split is more than fade_seconds slower than its opening is flagged as faded. Estimates never change lthr above.",
+      "minutes": 30,
+      "window_min": [10, 30],
+      "capped_max_rate": 21,
+      "fade_seconds": 3
+    }
   },
   "goals": [
     {

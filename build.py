@@ -294,6 +294,26 @@ def stroke_metrics(strokes, ath, min_valid):
     return out
 
 
+def lthr_estimate(strokes, lt, min_valid):
+    """LTHR from a 30-min test: time-weighted avg HR over minutes 10-30 (Friel field test).
+
+    Returns None when stroke HR covers < 90% of the window. Also reports pace for the opening and
+    the window, so a faded (not all-out) piece can be flagged.
+    """
+    w0, w1 = (m * 60 for m in lt.get("window_min", [10, 30]))
+    end = strokes[-1][0] if strokes else 0
+    if end < w1 - 10:
+        return None
+    win = window(strokes, w0, min(w1, end), min_valid)
+    if not win:
+        return None
+    opening = window(strokes, 0, w0, 0)  # pace only; HR coverage doesn't matter here
+    hrs = [p[2] for p in strokes if w0 <= p[0] <= w1 and p[2] >= min_valid]
+    return {"hr": round(win["hr"], 1), "split": round(win["split"], 1),
+            "open_split": round(opening["split"], 1) if opening else None,
+            "max_hr": max(hrs) if hrs else None}
+
+
 def is_single_piece(w):
     return w["workout_type"] not in INTERVAL_TYPES
 
@@ -640,6 +660,33 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
                               "type": max(types, key=types.get), "rows": marked})
     format_groups.sort(key=lambda g: (-len(g["rows"]), g["label"]))
 
+    # --- LTHR estimates from 30-min test pieces (avg HR, minutes 10-30) ---
+    lt = ath.get("lthr_test", {})
+    lt_min = lt.get("minutes", 30)
+    capped_ids = {w["id"] for b in cfg["benchmarks"] if b.get("max_rate") for w in bench[b["id"]]["rows"]}
+    lthr = []
+    for w in workouts:
+        if "#nolthr" in w["comments"] or not is_single_piece(w) or abs(w["seconds"] - lt_min * 60) > 5:
+            continue
+        if not ("#lthr" in w["comments"] or w["stype"] == "test" or w["id"] in benchmark_ids):
+            continue
+        st = load_strokes(strokes_dir / f"{w['id']}.json") if strokes_dir else None
+        est = None
+        if st:
+            st, _ = clean_hr(st, ath.get("hr_artifact_bpm", 20), ath.get("hr_artifact_seconds", 5))
+            est = lthr_estimate(st, lt, min_valid)
+        row = {"date": w["date"], "start": w["start_t"], "tod": w["tod"], "split": w["split"], "watts": w["watts"],
+               "rate": w["rate"], "avg_hr": w["hr"], "label": bench_of.get(w["id"]) or workout_format(w),
+               "capped": w["id"] in capped_ids or bool(w["rate"] and w["rate"] <= lt.get("capped_max_rate", 21)),
+               "est": est}
+        if est and est["open_split"]:
+            row["faded"] = est["split"] - est["open_split"] > lt.get("fade_seconds", 3)
+        lthr.append(row)
+    valid = [r for r in lthr if r["est"]]
+    clean = [r for r in valid if not r["capped"] and not r.get("faded")]
+    lthr_summary = {"pieces": len(lthr), "valid": len(valid), "clean": len(clean),
+                    "latest": clean[-1] if clean else None, "latest_any": valid[-1] if valid else None}
+
     # --- Steady-state efficiency (W/HR) ---
     ss = cfg["steady_state"]
     windows = ss.get("windows", [40, 60, 65, 70, 75, 80])
@@ -728,6 +775,8 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         "load_weeks": load_weeks,
         "efficiency": efficiency,
         "drift": drift,
+        "lthr": lthr,
+        "lthr_summary": lthr_summary,
         "strokes_coverage": [with_strokes, len(workouts)],
         "water_hr_coverage": [water_with_hr, len(water)],
         "hard_weeks": hard_weeks,
@@ -826,6 +875,10 @@ def main():
             streak += 1
         print(f"Recovery: {len(rec)} days; latest {tail['date']} rhr {tail['rhr']} (7d {tail['rhr7']}, baseline {tail['base']}), "
               f"sleep7 {tail['sleep7']} h, hrv {tail['hrv']}; high-RHR streak {streak}; load weeks {len(payload['load_weeks'])}")
+    ls = payload["lthr_summary"]
+    print(f"LTHR test pieces: {ls['pieces']} ({ls['valid']} with stroke HR, {ls['clean']} all-out & uncapped):",
+          [(r["date"], r["label"], (r["est"] or {}).get("hr"), "capped" if r["capped"] else "", "faded" if r.get("faded") else "")
+           for r in payload["lthr"]])
     print("Benchmark formats:", ", ".join(f"{g['label']} ({len(g['rows'])})" for g in payload["benchmarks"]))
     print("Time of day (steady sessions in the efficiency window, early/midday/evening; early-minus-evening median pace at HR s, W/HR):")
     for r in payload["tod_report"]:

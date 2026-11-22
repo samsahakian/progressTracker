@@ -165,6 +165,13 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
     <div class="tablewrap"><table id="benchTable"></table></div>
   </section>
 
+  <section class="card">
+    <h2>LTHR estimates</h2>
+    <p class="sub" id="lthrSub"></p>
+    <div class="chart" id="lthr"></div>
+    <div class="legend" id="lthrLegend"></div>
+  </section>
+
 
   <section class="card">
     <h2>Load vs recovery</h2>
@@ -587,6 +594,39 @@ function renderDrift() {
   document.getElementById("driftLegend").innerHTML = todLegend() + `<span><i class="ring"></i>Over ${flag}%</span>`;
 }
 
+function renderLthr() {
+  const node = document.getElementById("lthr"), a = A(), lt = a.lthr_test || {}, [w0, w1] = lt.window_min || [10, 30];
+  const s = DATA.lthr_summary || {}, rows = (DATA.lthr || []).filter(r => r.est), cfgL = a.lthr;
+  const latest = s.latest, sugg = latest ? `Latest all-out estimate <b>${Math.round(latest.est.hr)} bpm</b> (${fmtDate(latest.date)})` +
+    (cfgL ? ` vs ${cfgL} in config (${latest.est.hr - cfgL >= 0 ? "+" : ""}${Math.round(latest.est.hr - cfgL)}).` : ".") : "No all-out, uncapped estimate yet.";
+  document.getElementById("lthrSub").innerHTML = `Average stroke HR over minutes ${w0}–${w1} of each ${lt.minutes || 30}-min test piece (typed test, ` +
+    `a benchmark match, or tagged #lthr; #nolthr excludes). ${s.pieces || 0} pieces, ${rows.length} with stroke HR. ${sugg} ` +
+    `Rate-capped pieces (≤ r${lt.capped_max_rate ?? 21}) usually read low. Zones only change when you edit the config.`;
+  if (!rows.length) return needs(node, `per-stroke HR on ${lt.minutes || 30}-min test pieces`);
+  const flags = r => [r.capped && "rate-capped", r.faded && "faded"].filter(Boolean);
+  const tip = r => `${fmtDate(r.date)} · ${r.start || "?"} · ${r.label}<br>LTHR est. <b>${Math.round(r.est.hr)} bpm</b> (min ${w0}–${w1})` +
+    `${r.est.max_hr ? ` · max ${r.est.max_hr}` : ""}<br>${r.est.open_split ? fmtSplit(r.est.open_split) + " → " : ""}${fmtSplit(r.est.split)} · r${r.rate ?? "?"}` +
+    `${flags(r).length ? `<br><span style="color:var(--text-3)">${flags(r).join(", ")}</span>` : ""}`;
+  const kind = r => r.capped ? "capped" : r.faded ? "faded" : "clean";
+  if (state.view === "season") {
+    const labels = overlay(node, rows.map(r => ({ date: r.date, y: r.est.hr, tip: tip(r) })), { yFmt: v => Math.round(v), mode: "pieces" });
+    document.getElementById("lthrLegend").innerHTML = seasonLegend(labels);
+    return;
+  }
+  const shown = rows.filter(r => inRange(r.date));
+  if (!shown.length) return needs(node, "test pieces in this range");
+  const T0 = t(shown[0].date), T1 = t(shown[shown.length - 1].date), pts = k => shown.filter(r => kind(r) === k).map(r => ({ x: t(r.date), y: r.est.hr, tip: tip(r) }));
+  const clean = pts("clean");
+  chart(node, { yFmt: v => Math.round(v), events: EVENTS(), series: [
+    ...(cfgL ? [{ points: [{ x: T0, y: cfgL }, { x: T1, y: cfgL }], color: css("--text-3"), line: true, width: 1, dash: "5 4", noHover: true, endLabel: `config ${cfgL}` }] : []),
+    { points: clean, color: css("--s1"), line: true, dots: true, dotR: 4.5 },
+    { points: pts("faded"), color: css("--s1"), dots: true, dotR: 4, opacity: 0.4 },
+    { points: pts("capped"), color: css("--s4"), dots: true, dotR: 4 }] });
+  document.getElementById("lthrLegend").innerHTML = '<span><i style="background:var(--s1)"></i>All-out 30 min</span>' +
+    '<span><i style="background:var(--s1-soft)"></i>Faded (may read low)</span><span><i style="background:var(--s4)"></i>Rate-capped (30r20)</span>' +
+    `<span style="color:var(--text-3)">Dashed: config LTHR</span>`;
+}
+
 function renderRecovery() {
   const a = A(), rec = DATA.recovery, lw = DATA.load_weeks;
   const [b0, b1] = a.rhr_baseline_days || [8, 37], fb = a.rhr_flag_bpm ?? 4, fd = a.rhr_flag_days ?? 3;
@@ -839,7 +879,7 @@ function renderBench() {
 }
 
 // Steady-state rows for a window ("all" = whole piece), with a rolling average.
-function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderWater(); renderLog(); }
+function renderAll() { renderThisWeek(); renderGoal(); renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderTiles(); renderWeekly(); renderSeasons(); renderBench(); renderLthr(); renderWater(); renderLog(); }
 
 // ---------- controls ----------
 function seg(id, key, after) {
@@ -848,7 +888,7 @@ function seg(id, key, after) {
     box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
     state[key] = key === "range" ? +btn.dataset.v : btn.dataset.v; after(); });
 }
-seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderWeekly(); renderBench(); renderWater(); renderLog(); });
+seg("range", "range", () => { renderEfficiency(); renderIntensity(); renderHard(); renderDrift(); renderTime(); renderRecovery(); renderWeekly(); renderBench(); renderLthr(); renderWater(); renderLog(); });
 function applyView() {  // range and time-of-day split only apply to the timeline
   const off = state.view === "season";
   document.querySelectorAll(".todSplit").forEach(cb => { cb.disabled = off;
