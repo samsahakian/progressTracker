@@ -108,6 +108,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 28px; }
 .zonebar div { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; min-width: 0; overflow: hidden; white-space: nowrap; }
 .zonebar .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
 .zscale { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-bottom: 10px; }
+.lthrHead { padding: 1px 6px; border-radius: 6px; background: var(--bg); }
+.lthrHead.big { box-shadow: inset 3px 0 0 var(--s4); }
 .zsw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 </style>
 </head>
@@ -407,7 +409,10 @@ function chart(container, { series, yFmt, invert, bars, xLabel, height = 240, yM
         fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round", "stroke-linecap": "round",
         ...(s.dash ? { "stroke-dasharray": s.dash } : {}) }, svg);
     if (s.dots) s.points.forEach(p => {
-      el("circle", { cx: X(p.x), cy: Y(p.y), r: s.dotR || 4, fill: s.color, stroke: css("--surface"), "stroke-width": 2,
+      const r0 = s.dotR || 4;
+      if (s.shape === "diamond") el("path", { d: `M${X(p.x)},${Y(p.y) - r0 * 1.35}l${r0 * 1.35},${r0 * 1.35}l${-r0 * 1.35},${r0 * 1.35}l${-r0 * 1.35},${-r0 * 1.35}Z`,
+        fill: s.color, stroke: css("--surface"), "stroke-width": 1.5, "fill-opacity": s.opacity ?? 1 }, svg);
+      else el("circle", { cx: X(p.x), cy: Y(p.y), r: r0, fill: s.color, stroke: css("--surface"), "stroke-width": 2,
         "fill-opacity": s.opacity ?? 1 }, svg);
       if (p.pb) el("circle", { cx: X(p.x), cy: Y(p.y), r: (s.dotR || 4) + 4, fill: "none", stroke: css("--pb"), "stroke-width": 1.5 }, svg);
     });
@@ -677,7 +682,7 @@ function renderZones() {
   // time in zone, last 4 weeks (erg + water + Garmin-only indoor, from stroke/FIT HR)
   const cutoff = addDays(TODAY, -27 - ((new Date(TODAY + "T12:00").getDay() + 6) % 7)), sec = {};
   (DATA.intensity || []).filter(w => w.week >= cutoff).forEach(w => Object.entries(w.zones || {}).forEach(([z, v]) => sec[z] = (sec[z] || 0) + v));
-  const tot = Object.values(sec).reduce((x, y) => x + y, 0), est = DATA.lthr_summary?.latest;
+  const tot = Object.values(sec).reduce((x, y) => x + y, 0), est = lthrHeadline().recent;
   document.getElementById("zonesSub").innerHTML = `Coach zones from config.json, LTHR <b>${L ?? "?"}</b>, max HR ${a.max_hr ?? "?"}. ` +
     `Time in zone covers the last 4 weeks (${Math.round(tot / 60)} min with HR).`;
   const span = maxHr - lo, pos = v => Math.max(0, Math.min(100, (v - lo) / span * 100));
@@ -696,16 +701,37 @@ function renderZones() {
       `<td>${Math.round(m / 60)} min</td><td>${tot ? Math.round(m / tot * 100) + "%" : "—"}</td></tr>`; }).join("");
 }
 
+function lthrHeadline() {  // latest counting piece within recent_days, and the latest counting piece of any age
+  const lt = A().lthr_test || {}, counted = (DATA.lthr || []).filter(r => r.est && r.counts);
+  const last = counted[counted.length - 1] || null;
+  return { last, recent: last && daysBetween(last.date, TODAY) <= (lt.recent_days ?? 180) ? last : null };
+}
+function nextTestHint(h) {
+  const lt = A().lthr_test || {}, [r0, r1] = lt.retest_weeks || [8, 12], fmtM = d => new Date(d + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  if (lt.next_test && TODAY <= lt.next_test) return `Next test: ${lt.next_test_note || "30-min all-out"}, around ${fmtM(lt.next_test)}; then every ${r0}–${r1} weeks.`;
+  const base = h.last && (!lt.next_test || h.last.date >= lt.next_test) ? h.last.date : lt.next_test;
+  if (!base) return "";
+  const from = addDays(base, r0 * 7), to = addDays(base, r1 * 7);
+  return TODAY > to ? `<b>Test overdue</b>: due ${fmtM(from)}–${fmtM(to)} (${r0}–${r1} weeks after ${fmtDate(base)}).`
+    : `Next test due ${fmtM(from)}–${fmtM(to)} (${r0}–${r1} weeks after ${fmtDate(base)}).`;
+}
+
 function renderLthr() {
   const node = document.getElementById("lthr"), a = A(), lt = a.lthr_test || {}, [w0, w1] = lt.window_min || [10, 30];
   const s = DATA.lthr_summary || {}, rows = (DATA.lthr || []).filter(r => r.est), cfgL = a.lthr;
-  const latest = s.latest, sugg = latest ? `Latest all-out estimate <b>${Math.round(latest.est.hr)} bpm</b> (${fmtDate(latest.date)})` +
-    (cfgL ? ` vs ${cfgL} in config (${latest.est.hr - cfgL >= 0 ? "+" : ""}${Math.round(latest.est.hr - cfgL)}).` : ".") : "No all-out, uncapped estimate yet.";
-  document.getElementById("lthrSub").innerHTML = `Average stroke HR over minutes ${w0}–${w1} of each ${lt.minutes || 30}-min test piece (typed test, ` +
-    `a benchmark match, or tagged #lthr; #nolthr excludes). ${s.pieces || 0} pieces, ${rows.length} with stroke HR. ${sugg} ` +
-    `Rate-capped pieces (≤ r${lt.capped_max_rate ?? 21}) usually read low. Zones only change when you edit the config.`;
+  const h = lthrHeadline(), typeOf = r => r.capped ? r.label : r.tagged && r.label !== "30 min" ? `${r.label}, tagged` : `${r.label} all-out`;
+  let head;
+  if (h.recent) {  // coach 2026-11-22: date and type next to the number; highlight the gap only at >= gap_flag_bpm
+    const gap = cfgL ? h.recent.est.hr - cfgL : null, big = gap != null && Math.abs(gap) >= (lt.gap_flag_bpm ?? 4);
+    head = `<span class="lthrHead${big ? " big" : ""}"><b>${Math.round(h.recent.est.hr)} bpm</b> · ${fmtDate(h.recent.date)} · ${esc(typeOf(h.recent))}</span>` +
+      (gap != null ? ` vs ${cfgL} in config (${gap >= 0 ? "+" : ""}${Math.round(gap)}${big ? ", worth a look" : ", within noise"}).` : ".");
+  } else head = h.last ? `<span class="lthrHead">No recent test. Last: ${Math.round(h.last.est.hr)} (${fmtDate(h.last.date)})</span>.` : "No test pieces with stroke HR yet.";
+  document.getElementById("lthrSub").innerHTML = `${head} ${nextTestHint(h)}<br>Average stroke HR over minutes ${w0}–${w1} of each ${lt.minutes || 30}-min test piece (typed test, ` +
+    `a benchmark match, or tagged #lthr; #nolthr excludes). ${s.pieces || 0} pieces, ${rows.length} with stroke HR. The headline uses the latest piece from the last ` +
+    `${lt.recent_days ?? 180} days that is all-out, tagged #lthr, or rate-capped (≤ r${lt.capped_max_rate ?? 21}) but reading at or above the last all-out ` +
+    `(a low rate can only pull HR down). Zones only change when you edit the config.`;
   if (!rows.length) return needs(node, `per-stroke HR on ${lt.minutes || 30}-min test pieces`);
-  const flags = r => [r.capped && "rate-capped", r.faded && "faded"].filter(Boolean);
+  const flags = r => [r.capped && "rate-capped", r.faded && "faded", r.counts ? `counts (${r.why})` : r.why && `not counted (${r.why})`].filter(Boolean);
   const tip = r => `${fmtDate(r.date)} · ${r.start || "?"} · ${r.label}<br>LTHR est. <b>${Math.round(r.est.hr)} bpm</b> (min ${w0}–${w1})` +
     `${r.est.max_hr ? ` · max ${r.est.max_hr}` : ""}<br>${r.est.open_split ? fmtSplit(r.est.open_split) + " → " : ""}${fmtSplit(r.est.split)} · r${r.rate ?? "?"}` +
     `${flags(r).length ? `<br><span style="color:var(--text-3)">${flags(r).join(", ")}</span>` : ""}`;
@@ -717,15 +743,16 @@ function renderLthr() {
   }
   const shown = rows.filter(r => inRange(r.date));
   if (!shown.length) return needs(node, "test pieces in this range");
-  const T0 = t(shown[0].date), T1 = t(shown[shown.length - 1].date), pts = k => shown.filter(r => kind(r) === k).map(r => ({ x: t(r.date), y: r.est.hr, tip: tip(r) }));
+  const T0 = t(shown[0].date), T1 = t(shown[shown.length - 1].date), hr0 = h.recent || h.last;
+  const pts = k => shown.filter(r => kind(r) === k).map(r => ({ x: t(r.date), y: r.est.hr, tip: tip(r), pb: r === hr0 }));
   const clean = pts("clean");
   chart(node, { yFmt: v => Math.round(v), events: EVENTS(), series: [
     ...(cfgL ? [{ points: [{ x: T0, y: cfgL }, { x: T1, y: cfgL }], color: css("--text-3"), line: true, width: 1, dash: "5 4", noHover: true, endLabel: `config ${cfgL}` }] : []),
     { points: clean, color: css("--s1"), line: true, dots: true, dotR: 4.5 },
     { points: pts("faded"), color: css("--s1"), dots: true, dotR: 4, opacity: 0.4 },
-    { points: pts("capped"), color: css("--s4"), dots: true, dotR: 4 }] });
+    { points: pts("capped"), color: css("--s4"), dots: true, dotR: 4, shape: "diamond" }] });
   document.getElementById("lthrLegend").innerHTML = '<span><i style="background:var(--s1)"></i>All-out 30 min</span>' +
-    '<span><i style="background:var(--s1-soft)"></i>Faded (may read low)</span><span><i style="background:var(--s4)"></i>Rate-capped (30r20)</span>' +
+    '<span><i style="background:var(--s1-soft)"></i>Faded (may read low)</span><span><i style="background:var(--s4);transform:rotate(45deg);border-radius:1px"></i>Rate-capped (30r20)</span><span><i class="ring"></i>Headline piece</span>' +
     `<span style="color:var(--text-3)">Dashed: config LTHR</span>`;
 }
 

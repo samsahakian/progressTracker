@@ -158,11 +158,16 @@
     "hr_artifact_seconds": 5,
     "tod_min_sessions": 5,
     "lthr_test": {
-      "_help": "LTHR estimates: avg HR over window_min of each continuous `minutes`-long test piece (typed test, a benchmark match, or tagged #lthr; #nolthr excludes). Pieces at or under capped_max_rate are rate-capped (e.g. 30r20) and shown apart; a piece whose window split is more than fade_seconds slower than its opening is flagged as faded. Estimates never change lthr above.",
+      "_help": "LTHR estimates: avg HR over window_min of each continuous `minutes`-long test piece (typed test, a benchmark match, or tagged #lthr; #nolthr excludes). Pieces at or under capped_max_rate are rate-capped (e.g. 30r20) and shown apart; a piece whose window split is more than fade_seconds slower than its opening is flagged as faded. Estimates never change lthr above. Headline (coach 2026-11-22): latest piece that counts (all-out uncapped; tagged #lthr; or rate-capped with an estimate at or above the last all-out) within recent_days; a gap to config is highlighted only at gap_flag_bpm or more. next_test / retest_weeks drive the 'next test due' hint.",
       "minutes": 30,
       "window_min": [10, 30],
       "capped_max_rate": 21,
-      "fade_seconds": 3
+      "fade_seconds": 3,
+      "recent_days": 180,
+      "gap_flag_bpm": 4,
+      "next_test": "2027-01-04",
+      "next_test_note": "30-min all-out at the start of the 1M block",
+      "retest_weeks": [8, 12]
     }
   },
   "goals": [

@@ -702,10 +702,26 @@ def build(results, cfg, manual_catchup=(), water=(), strokes_dir=None, garmin_da
         if est and est["open_split"]:
             row["faded"] = est["split"] - est["open_split"] > lt.get("fade_seconds", 3)
         lthr.append(row)
+        row["tagged"] = "#lthr" in w["comments"]
     valid = [r for r in lthr if r["est"]]
     clean = [r for r in valid if not r["capped"] and not r.get("faded")]
-    lthr_summary = {"pieces": len(lthr), "valid": len(valid), "clean": len(clean),
-                    "latest": clean[-1] if clean else None, "latest_any": valid[-1] if valid else None}
+    # Which pieces count toward the headline (coach LTHR feedback #1): all-out uncapped pieces; a #lthr tag; and a
+    # rate-capped piece whose estimate is >= the latest all-out estimate before it (a low rate can only pull HR down).
+    last_clean = None
+    for r in valid:
+        if not r["capped"] and not r.get("faded"):
+            r["counts"], r["why"] = True, "all-out"
+            last_clean = r["est"]["hr"]
+        elif r["tagged"]:
+            r["counts"], r["why"] = True, "tagged #lthr"
+        elif r["capped"] and not r.get("faded") and last_clean is not None and r["est"]["hr"] >= last_clean:
+            r["counts"], r["why"] = True, f"rate-capped, at or above the last all-out ({last_clean:g})"
+        else:
+            r["counts"], r["why"] = False, ("faded" if r.get("faded") else "" if not r["capped"]
+                                            else "rate-capped, no all-out piece before it" if last_clean is None else "rate-capped, below the last all-out")
+    counted = [r for r in valid if r["counts"]]
+    lthr_summary = {"pieces": len(lthr), "valid": len(valid), "clean": len(clean), "counted": len(counted),
+                    "latest": counted[-1] if counted else None, "latest_any": valid[-1] if valid else None}
 
     # --- Steady-state efficiency (W/HR) ---
     ss = cfg["steady_state"]
@@ -908,9 +924,11 @@ def main():
         print(f"Recovery: {len(rec)} days; latest {tail['date']} rhr {tail['rhr']} (7d {tail['rhr7']}, baseline {tail['base']}), "
               f"sleep7 {tail['sleep7']} h, hrv {tail['hrv']}; high-RHR streak {streak}; load weeks {len(payload['load_weeks'])}")
     ls = payload["lthr_summary"]
-    print(f"LTHR test pieces: {ls['pieces']} ({ls['valid']} with stroke HR, {ls['clean']} all-out & uncapped):",
-          [(r["date"], r["label"], (r["est"] or {}).get("hr"), "capped" if r["capped"] else "", "faded" if r.get("faded") else "")
-           for r in payload["lthr"]])
+    print(f"LTHR test pieces: {ls['pieces']} ({ls['valid']} with stroke HR, {ls['clean']} all-out & uncapped, {ls['counted']} count toward the headline):",
+          [(r["date"], r["label"], (r["est"] or {}).get("hr"), "capped" if r["capped"] else "", "faded" if r.get("faded") else "",
+            "COUNTS" if r.get("counts") else "", r.get("why", "")) for r in payload["lthr"]])
+    if ls["latest"]:
+        print(f"LTHR headline candidate: {ls['latest']['est']['hr']} on {ls['latest']['date']} ({ls['latest']['label']}, {ls['latest']['why']})")
     print("Benchmark formats:", ", ".join(f"{g['label']} ({len(g['rows'])})" for g in payload["benchmarks"]))
     print("Time of day (steady sessions in the efficiency window, early/midday/evening; early-minus-evening median pace at HR s, W/HR):")
     for r in payload["tod_report"]:
