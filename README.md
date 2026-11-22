@@ -46,6 +46,12 @@ callback `http://localhost:8080/callback`, no webhook).
 
 If the daily run ever fails at "Refresh Concept2 token", redo steps 2–3.
 
+Each build also writes `site/data.json` (the page's data) and `site/summary.md` (a plain-text
+This-week summary, flags, last 10 sessions and last 3 benchmark pieces). Both deploy with the page
+(`…/summary.md`, `…/data.json`), and each run force-pushes them with `index.html` to the
+`dashboard-data` branch (one commit) for readers that can clone but can't open github.io. The
+This-week tiles and flags are computed in `thisweek.py` as of the build date in Chicago.
+
 ## Add on-water sessions from Garmin (optional)
 
 Pulls outdoor rowing activities from Garmin Connect and shows them alongside the erg: separate

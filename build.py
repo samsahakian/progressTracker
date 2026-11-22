@@ -13,6 +13,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import thisweek
+
 ROOT = Path(__file__).parent
 INTERVAL_TYPES = {"FixedDistanceInterval", "FixedTimeInterval", "FixedCalorieInterval",
                   "VariableInterval", "VariableIntervalUndefinedRest", "FixedWattMinuteInterval"}
@@ -905,6 +907,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", type=Path, default=ROOT / "data" / "results.json")
     ap.add_argument("--out", type=Path, default=ROOT / "site" / "index.html")
+    ap.add_argument("--today", type=date.fromisoformat, help="build as if on this date (YYYY-MM-DD); default today in Chicago")
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config.json").read_text())
@@ -916,11 +919,19 @@ def main():
                     json.loads(ga.read_text()) if ga.exists() else [],
                     json.loads(gi.read_text()) if (gi := args.data.parent / "garmin_indoor.json").exists() else [],
                     load_hevy(args.data.parent))
+    # This-week tiles and flags are computed here, once, for the page and the coach's daily review alike.
+    # "Today" is the build date in Chicago (the page used to use the viewer's clock).
+    now = datetime.now(ZoneInfo(cfg.get("timezone", "America/Chicago")))
+    payload["this_week"] = thisweek.this_week(payload, args.today or now.date(), payload["generated"])
     html = (ROOT / "template.html").read_text().replace(
         "/*__DATA__*/null", json.dumps(payload, separators=(",", ":"))
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(html)
+    # Same data as the page, as plain JSON, plus a short text summary, so a script or the coach review
+    # can read it without running the page.
+    (args.out.parent / "data.json").write_text(json.dumps(payload, separators=(",", ":")))
+    (args.out.parent / "summary.md").write_text(thisweek.summary_md(payload))
     s = payload["summary"]
     print(f"Built {args.out}: {s['workouts']} workouts, {s['total_meters']:,} m, "
           f"{sum(len(b['rows']) for b in payload['benchmarks'])} benchmark pieces, "

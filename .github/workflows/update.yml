@@ -119,6 +119,21 @@ jobs:
       - name: Build dashboard
         run: python3 build.py
 
+      # The coach's daily review runs in a cloud sandbox that can clone public GitHub repos but can't open
+      # github.io. Keep the latest summary and data (the same data the public page already shows) on their
+      # own branch, one commit, force-pushed, so the repo doesn't grow. A failure here never blocks the deploy.
+      - name: Save data snapshot to the dashboard-data branch
+        continue-on-error: true
+        run: |
+          idx=$(git hash-object -w site/index.html)
+          dat=$(git hash-object -w site/data.json)
+          sum=$(git hash-object -w site/summary.md)
+          tree=$(printf '100644 blob %s\tdata.json\n100644 blob %s\tindex.html\n100644 blob %s\tsummary.md\n' "$dat" "$idx" "$sum" | git mktree)
+          commit=$(GIT_AUTHOR_NAME=github-actions GIT_AUTHOR_EMAIL=github-actions@users.noreply.github.com \
+                   GIT_COMMITTER_NAME=github-actions GIT_COMMITTER_EMAIL=github-actions@users.noreply.github.com \
+                   git commit-tree "$tree" -m "Dashboard data $(TZ=America/Chicago date '+%Y-%m-%d %H:%M')")
+          git push -q -f origin "$commit:refs/heads/dashboard-data"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -480,63 +480,43 @@ function currentGoal() {
 }
 const round100 = v => Math.round(v / 100) * 100;
 
+// Tiles and flags are computed in build.py (thisweek.py) as of the build date, so the page and the coach's
+// daily review (summary.md / data.json) show the same numbers. This only formats them.
 function renderThisWeek() {
-  const monday = addDays(TODAY, -((new Date(TODAY + "T12:00").getDay() + 6) % 7));
-  let erg = 0, water = 0;
-  for (let d = monday; d <= TODAY; d = addDays(d, 1)) { erg += metersOn(d, ["erg"]); water += metersOn(d, ["water"]); }
-  document.getElementById("weekSub").textContent = `${fmtDay(monday)} – today · data through ${fmtDay(DATA.summary.last || TODAY)}`;
-  const cg = currentGoal(), tiles = [], flags = [];
-  if (cg) { const { g, s } = cg;
-    if (s.status === "upcoming") {
-      const inDays = daysBetween(TODAY, g.start);
-      tiles.push([g.label, `Starts ${inDays === 1 ? "tomorrow" : new Date(g.start + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, `${fmtM(g.target)} in ${s.N} days · ${round100(s.basePerDay).toLocaleString()} m/day`]);
-      if (inDays <= 7) flags.push(["", `<b>${g.label} starts ${inDays === 1 ? "tomorrow" : fmtDay(g.start)}.</b> ${round100(s.basePerDay).toLocaleString()} m/day for ${s.N} days gets you to ${fmtM(g.target)}.`]);
-    } else if (s.status === "active") {
-      const ahead = Math.round(s.ahead), days = s.basePerDay ? Math.abs(ahead) / s.basePerDay : 0;
-      tiles.push([g.label, `${fmtM(s.done)} / ${fmtM(g.target)}`,
-        `${ahead >= 0 ? `${Math.abs(ahead).toLocaleString()} m ahead` : `${Math.abs(ahead).toLocaleString()} m behind`} · ${round100(s.perDay).toLocaleString()} m/day to finish`]);
-      if (ahead < -s.basePerDay) flags.push(["warn", `<b>Behind ${g.label} pace by ${Math.abs(ahead).toLocaleString()} m</b> (about ${days.toFixed(1)} days). Need ${round100(s.perDay).toLocaleString()} m/day for the last ${s.daysLeft} days.`]);
-      else flags.push(["good", `<b>On ${g.label} pace</b>: ${fmtM(s.done)} of ${fmtM(g.target)}, ${ahead >= 0 ? `${Math.abs(ahead).toLocaleString()} m ahead` : `${Math.abs(ahead).toLocaleString()} m behind`}. ${round100(s.perDay).toLocaleString()} m/day finishes it.`]);
-      const lastErg = Object.keys(DATA.daily).filter(d => DATA.daily[d].erg > 0).pop();
-      if (lastErg && daysBetween(lastErg, TODAY) >= 3) flags.push(["warn", `<b>No erg meters since ${fmtDay(lastErg)}.</b> Each missed day adds ${round100(s.perDay / Math.max(1, s.daysLeft - 1)).toLocaleString()} m to every remaining day.`]);
-    } else {
-      tiles.push([g.label, s.done >= g.target ? "Done" : "Ended", `${fmtM(s.done)} of ${fmtM(g.target)}`]);
-    }
+  const W = DATA.this_week, monday = W.week_start, asOf = W.as_of.today;
+  const through = W.as_of.data_through ? fmtDay(W.as_of.data_through) : "—";
+  document.getElementById("weekSub").textContent = `${fmtDay(monday)} – ${asOf === TODAY ? "today" : fmtDay(asOf)} · data through ${through}`;
+  const tiles = [], g = W.goal;
+  if (g) {
+    if (g.status === "upcoming")
+      tiles.push([g.label, `Starts ${g.starts_in === 1 ? "tomorrow" : new Date(g.start + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, `${fmtM(g.target)} in ${g.days} days · ${round100(g.base_per_day).toLocaleString()} m/day`]);
+    else if (g.status === "active")
+      tiles.push([g.label, `${fmtM(g.done)} / ${fmtM(g.target)}`,
+        `${Math.abs(g.ahead).toLocaleString()} m ${g.ahead >= 0 ? "ahead" : "behind"} · ${round100(g.per_day).toLocaleString()} m/day to finish`]);
+    else tiles.push([g.label, g.done >= g.target ? "Done" : "Ended", `${fmtM(g.done)} of ${fmtM(g.target)}`]);
   }
-  const tw = DATA.time_weeks.find(x => x.week === monday), mins = tw ? tw.erg + tw.water + tw.indoor : 0;
-  tiles.push(["Meters this week", fmtM(erg), `erg${DATA.water.length ? ` · ${fmtM(water)} water` : ""} · ${fmtHM(mins)} training`]);
-  const hw = DATA.hard_weeks.find(x => x.week === monday), target = A().hard_sessions_target ?? 2;
-  tiles.push(["Hard sessions", `${hw ? hw.n : 0} / ${target}`, hw && hw.n ? `erg ${hw.erg} · water ${hw.water} · Garmin indoor ${hw.indoor}` : "none yet this week"]);
-  const iw = DATA.intensity.find(x => x.week === monday), ip = iw && weekPct(iw), a = A();
-  if (ip) {
-    tiles.push(["% easy (Z1–Z2)", `${Math.round(ip.easy)}%`, `Z3 ${Math.round(ip.mod)}% · hard ${Math.round(ip.hard)}% · ${Math.round(ip.tot / 60)} min${iw.water_s ? " incl. water" : ""}`]);
-    if (ip.mod > (a.z3_flag_pct ?? 15)) flags.push(["warn", `<b>Z3 is ${Math.round(ip.mod)}% of erg time this week</b> (limit ${a.z3_flag_pct ?? 15}%). Keep steady pieces at or below ${a.efficiency_hr_band?.[1] ?? 149} bpm.`]);
-    else if (ip.easy < (a.easy_target_pct ?? 80) && ip.tot >= 60 * 60) flags.push(["warn", `<b>${Math.round(ip.easy)}% easy this week</b>, under the ${a.easy_target_pct ?? 80}% target.`]);
-  } else tiles.push(["% easy (Z1–Z2)", "—", DATA.strokes_coverage[0] ? "no erg HR this week yet" : "needs per-stroke HR", "na"]);
-  const wd = DATA.drift.filter(r => r.date >= monday && r.drift > (a.drift_flag_pct ?? 5));
-  if (wd.length) flags.push(["warn", `<b>HR drift ${wd.map(r => r.drift.toFixed(1) + "%").join(", ")}</b> on ${wd.length === 1 ? "a steady session" : "steady sessions"} this week (flag at ${a.drift_flag_pct ?? 5}%). Check fueling, heat and sleep, or ease the pace.`]);
-  { const hb = A().efficiency_hr_band || [142, 149];  // aerobic efficiency tile (coach F15)
-    const rows = DATA.efficiency.filter(r => r.hr >= hb[0] && r.hr <= hb[1] + 0.99);
-    const roll = rolling28(rows, "split"), last = roll[roll.length - 1];
-    const prev = last && roll.filter(p => daysBetween(p.date, last.date) >= 28).pop();
-    if (last) tiles.push([`Pace at ${hb[0]}–${hb[1]} bpm`, fmtSplit(last.y),
-      prev ? `${last.y <= prev.y ? "▲ faster" : "▼ slower"} than ${fmtSplit(prev.y)} 4 wk earlier · 4-wk avg` : "4-week average"]);
-    else tiles.push(["Aerobic efficiency", "—", "no steady sessions in the HR band yet", "na"]); }
-  const rl = DATA.recovery[DATA.recovery.length - 1];
-  if (rl && rl.rhr7) {
-    const diff = rl.base ? rl.rhr7 - rl.base : null, streak = rhrStreak();
-    tiles.push(["Resting HR, 7 days", `${rl.rhr7.toFixed(0)} bpm`,
-      `${rl.base ? `baseline ${rl.base} · ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}` : "baseline building"}${rl.sleep7 ? ` · sleep ${rl.sleep7.toFixed(1)} h` : ""}`]);
-    if (streak >= (A().rhr_flag_days ?? 3))
-      flags.push(["warn", `<b>Resting HR ${A().rhr_flag_bpm ?? 4}+ bpm over baseline for ${streak} days</b> (${rl.rhr} today vs ${rl.base}). Consider an easier day.`]);
-  } else tiles.push(["Resting HR, 7 days", "Needs Garmin daily data", `vs baseline ${DATA.athlete.resting_hr_baseline ?? "—"} bpm`, "na"]);
-  if (L()) { const lw = liftWeek(monday);  // one compact lifting tile + the pre-hard-session heads-up (coach Q10)
-    tiles.push(["Lifts · Prehab", `${lw.lifts}/${LC().lifts_target ?? 2} · ${lw.prehab}/${LC().prehab_target ?? 3}`,
-      `${lw.last ? `last lift ${fmtDay(lw.last.date)}` : "no lifts yet"} · <a href="#lifting" style="color:inherit">Lifting tab</a>`]);
-    lw.preHard.forEach(h => flags.push(["", preHardTxt(h)])); }
+  const m = W.meters;
+  tiles.push(["Meters this week", fmtM(m.erg), `erg${m.has_water ? ` · ${fmtM(m.water)} water` : ""} · ${fmtHM(m.minutes)} training`]);
+  const h = W.hard;
+  tiles.push(["Hard sessions", `${h.n} / ${h.target}`, h.n ? `erg ${h.erg} · water ${h.water} · Garmin indoor ${h.indoor}` : "none yet this week"]);
+  const ip = W.intensity;
+  if (ip) tiles.push(["% easy (Z1–Z2)", `${Math.round(ip.easy)}%`, `Z3 ${Math.round(ip.z3)}% · hard ${Math.round(ip.hard)}% · ${ip.minutes} min${ip.includes_water ? " incl. water" : ""}`]);
+  else tiles.push(["% easy (Z1–Z2)", "—", W.intensity_na, "na"]);
+  const e = W.efficiency;
+  if (e) tiles.push([`Pace at ${e.band[0]}–${e.band[1]} bpm`, fmtSplit(e.split),
+    e.prev_split != null ? `${e.direction === "faster" ? "▲ faster" : "▼ slower"} than ${fmtSplit(e.prev_split)} 4 wk earlier · 4-wk avg` : "4-week average"]);
+  else tiles.push(["Aerobic efficiency", "—", "no steady sessions in the HR band yet", "na"]);
+  const r = W.rhr;
+  if (r) tiles.push(["Resting HR, 7 days", `${r.rhr7.toFixed(0)} bpm`,
+    `${r.base ? `baseline ${r.base} · ${r.diff >= 0 ? "+" : ""}${r.diff.toFixed(1)}` : "baseline building"}${r.sleep7 ? ` · sleep ${r.sleep7.toFixed(1)} h` : ""}`]);
+  else tiles.push(["Resting HR, 7 days", "Needs Garmin daily data", `vs baseline ${A().resting_hr_baseline ?? "—"} bpm`, "na"]);
+  const lw = W.lifts;
+  if (lw) tiles.push(["Lifts · Prehab", `${lw.lifts}/${lw.lifts_target} · ${lw.prehab}/${lw.prehab_target}`,
+    `${lw.last_lift ? `last lift ${fmtDay(lw.last_lift)}` : "no lifts yet"} · <a href="#lifting" style="color:inherit">Lifting tab</a>`]);
   document.getElementById("weekTiles").innerHTML = tiles.map(([k, v, d, cls]) =>
     `<div class="tile ${cls || ""}"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
-  document.getElementById("flags").innerHTML = flags.slice(0, 3).map(([c, h]) => `<li class="${c}">${h}</li>`).join("");
+  document.getElementById("flags").innerHTML = W.flags.slice(0, 3).map(f =>
+    `<li class="${f.level}"><b>${esc(f.lead)}</b>${esc(f.text.slice(f.lead.length))}</li>`).join("");
 }
 
 // 4-week (28-day) rolling mean, by date, for rows sorted by date
