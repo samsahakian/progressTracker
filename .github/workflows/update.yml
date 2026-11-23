@@ -1,13 +1,15 @@
 name: Update dashboard
 
 on:
-  # Chicago time: weekdays 4:47 and 5:47, weekends 7:47 and 8:47 (two tries each, off the
-  # half hour, well before the 6:55 / 9:55 coach review — GitHub schedules can run hours late
+  # Chicago time: weekdays 6:37 and 7:07 (after the ~5 a.m. workout), weekends 7:47 and 8:47 (two tries each, off the
+  # half hour, well before the 7:37 / 9:55 coach review — GitHub schedules can run hours late
   # or be skipped). GitHub cron is UTC, so each time is listed for both standard (UTC-6) and
   # daylight (UTC-5) time; the gate job runs only the one that matches today.
   schedule:
-    - cron: "47 10,11 * * 1-5"   # 4:47, 5:47 CST
-    - cron: "47 9,10 * * 1-5"    # 4:47, 5:47 CDT
+    - cron: "37 12 * * 1-5"      # 6:37 CST
+    - cron: "7 13 * * 1-5"       # 7:07 CST
+    - cron: "37 11 * * 1-5"      # 6:37 CDT
+    - cron: "7 12 * * 1-5"       # 7:07 CDT
     - cron: "47 13,14 * * 0,6"   # 7:47, 8:47 CST
     - cron: "47 12,13 * * 0,6"   # 7:47, 8:47 CDT
   workflow_dispatch:         # "Run workflow" button for an on-demand refresh
@@ -36,8 +38,8 @@ jobs:
           run=true
           if [ "$EVENT" = "schedule" ]; then
             case "$CRON" in
-              "47 10,11 * * 1-5"|"47 13,14 * * 0,6") [ "$off" = "-0600" ] || run=false ;;
-              "47 9,10 * * 1-5"|"47 12,13 * * 0,6") [ "$off" = "-0500" ] || run=false ;;
+              "37 12 * * 1-5"|"7 13 * * 1-5"|"47 13,14 * * 0,6") [ "$off" = "-0600" ] || run=false ;;
+              "37 11 * * 1-5"|"7 12 * * 1-5"|"47 12,13 * * 0,6") [ "$off" = "-0500" ] || run=false ;;
             esac
           fi
           echo "Chicago offset $off, schedule '$CRON' -> run=$run"
